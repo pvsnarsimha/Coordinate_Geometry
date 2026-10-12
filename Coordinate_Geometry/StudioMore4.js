@@ -133,7 +133,7 @@ function drawL3(g, t, lv, P, focus) {
   if (e4 > 0) {
     if (o.kind === 'intersect') { dotL(I, o.Q1, C.a, 'I' + p3(o.Q1), 0, -16, 8); }
     else if (o.kind === 'coincident') { I.tx('same line', [14, 24], C.a, 0, 0, 14, 'left'); }
-    else { I.ln(o.Q1, V.add(o.Q1, V.mul(V.sub(o.Q2, o.Q1), e4)), C.a, 4.5); dotL(I, o.Q1, C.a, '', 0, 0, 5); if (e4 >= 1) { dotL(I, o.Q2, C.a, '', 0, 0, 5); I.tx((focus === 1 ? 'd = ' : 'gap = ') + fmt(o.dist), V.mul(V.add(o.Q1, o.Q2), .5), C.a, 14, -4, 14, 'left'); } }
+    else { I.ln(o.Q1, V.add(o.Q1, V.mul(V.sub(o.Q2, o.Q1), e4)), C.a, 4.5); dotL(I, o.Q1, C.a, '', 0, 0, 5); if (e4 >= 1) { dotL(I, o.Q2, C.a, '', 0, 0, 5); I.tx((focus === 1 ? 'd = ' : 'gap = ') + fmt(o.dist), o.Q2, C.a, 12, -14, 14, 'left'); } }
   }
   const k = t < .1 ? 0 : t < .4 ? 1 : t < .65 ? 2 : t < .85 ? 3 : 4, ls = (i, p, d) => 'Line ' + i + ': through P' + (i === 1 ? '₁' : '₂') + p3(p) + ', direction ' + p3(d);
   const intro = [ls(1, p1, d1) + '.  ' + ls(2, p2, d2) + '.'];
@@ -291,7 +291,7 @@ mk('planes3d', 10, 'Line where two planes meet', 'Class 11–12',
     if (eA > .5) { const nn1 = V.mul(o.n1, 2.2 / V.len(o.n1)); arrow3(g, I, base, V.add(base, nn1), C.c, 3.6); I.tx('n₁', V.add(base, nn1), C.c, 10, -6, 13); }
     if (eB > .5) { const nn2 = V.mul(o.n2, 2.2 / V.len(o.n2)); arrow3(g, I, base, V.add(base, nn2), C.g, 3.6); I.tx('n₂', V.add(base, nn2), C.g, 10, -6, 13); }
     if (o.kind === 'line') {
-      if (eC > 0) { arrow3(g, I, o.pm, V.add(o.pm, V.mul(o.u, 2.6 * eC)), C.b, 3.6); if (eC >= 1) I.tx('d = n₁ × n₂', V.add(o.pm, V.mul(o.u, 2.6)), C.b, 10, 10, 12, 'left'); dotL(I, o.p0, C.ink, 'P₀', -14, -8, 5); }
+      if (eC > 0) { arrow3(g, I, o.pm, V.add(o.pm, V.mul(o.u, 2.6 * eC)), C.b, 3.6); if (eC >= 1) I.tx('d = n₁ × n₂', V.add(o.pm, V.mul(o.u, 2.6)), C.b, 12, -12, 12, 'left'); dotL(I, o.p0, C.ink, 'P₀', -14, -8, 5); }
       if (eD > 0) { line3(I, o.pm, o.u, C.a, 4.6, eD); if (eD >= 1) I.tx(symEq(o.p0, o.u), [14, 24], C.a, 0, 0, 12, 'left'); }
     } else if (eD > 0) I.tx(o.kind === 'coincident' ? 'the same plane' : 'parallel planes: no common line', [14, 24], C.a, 0, 0, 14, 'left');
     const k = t < .08 ? 0 : t < .32 ? 1 : t < .56 ? 2 : t < .8 ? 3 : 4, e1s = eqPlane(P.a1, P.b1, P.c1, P.e1), e2s = eqPlane(P.a2, P.b2, P.c2, P.e2);
@@ -502,7 +502,7 @@ const regFit = P => {
 };
 const regEq = f => E.slopeEq(f.m, f.b);
 const regPar = [['n', 'number of points n', 5]]; [[1, 2], [2, 3], [3, 4], [4, 5], [5, 5], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]].forEach((q, i) => regPar.push(['x' + (i + 1), 'x' + (i + 1), q[0]], ['y' + (i + 1), 'y' + (i + 1), q[1]])); regPar.push(['tx', 'test x', 3.5]);
-const corner = (g, s, col, y = 22) => { const ctx = g.ctx; ctx.save(); ctx.font = '700 13px ' + E.FONT; ctx.fillStyle = col; ctx.textAlign = 'left'; ctx.fillText(s, 12, y); ctx.restore(); };
+const corner = (g, s, col, y = 22) => { const ctx = g.ctx; ctx.save(); ctx.font = '700 13px ' + E.FONT; ctx.fillStyle = col; ctx.textAlign = 'left'; ctx.fillText(s, 44, y); ctx.restore(); };
 mk('regress', 10, 'Best-fit line (least squares)', 'Class 11–12', regPar,
   ['The best straight line passes as close as possible to all the dots: its squared misses add up to the least.', 'm = (nΣxy − ΣxΣy)/(nΣx² − (Σx)²),  b = (Σy − mΣx)/n,  r = (nΣxy − ΣxΣy)/√[(nΣx² − (Σx)²)(nΣy² − (Σy)²)]'], {
   fit: P => { const f = regFit(P); if (!f) return [[0, 0], [5, 5]]; const q = f.pts.concat([[0, 0]]); if (Number.isFinite(P.tx)) q.push([P.tx, f.m * P.tx + f.b]); return q; },
