@@ -384,6 +384,7 @@ const tabAngleBisectors = document.getElementById('tabAngleBisectors');
 tabAngleBisectors.addEventListener('click', () => {
     destroyGraph();
     switchTab('tabAngleBisectors');
+    renderAngleBisectorsEquationCard();
 });
 
 // Event listeners for Standard Points of Triangle

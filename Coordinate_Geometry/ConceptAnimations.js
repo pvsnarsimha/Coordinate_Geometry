@@ -31,6 +31,13 @@ function eqStr(a, b, c, d = 4) {
   for (let i = 1; i < terms.length; i++) s += ' ' + terms[i][0] + ' ' + terms[i][1];
   return s + ' = 0';
 }
+// bisector-style lines: smallest whole-number coefficients when the numbers are rational
+function niceEq(l) {
+  let a = l.a, b = l.b, c = l.c; const m = Math.max(Math.abs(a), Math.abs(b)) || 1; a /= m; b /= m; c /= m;
+  if (a < -1e-9 || (Math.abs(a) < 1e-9 && b < -1e-9)) { a = -a; b = -b; c = -c; }
+  for (let k = 1; k <= 60; k++) if ([a, b, c].every(v => Math.abs(v * k - Math.round(v * k)) < 1e-6)) { a *= k; b *= k; c *= k; break; }
+  return eqStr(a, b, c, 2);
+}
 // "y = mx + c"
 function slopeEq(m, c) {
   const mt = Math.abs(m) < EPS ? '' : (Math.abs(Math.abs(m) - 1) < 1e-9 ? (m < 0 ? '−x' : 'x') : fmt(m) + 'x');
@@ -281,7 +288,7 @@ const scenes = [
   draw(g, t, C, lv, P) {
     const { a1, b1, c1, a2, b2, c2 } = P, bs = bisectors(P), I = intersect(P) || [0, 0];
     g.LL(a1, b1, c1, C.c, 3.5); g.LL(a2, b2, c2, C.g, 3.5);
-    const main = bs.find(x => x.ok); if (!main) return 'These two lines are the same line.';
+    const main = bisPick(P, bs); if (!main) return 'These two lines are the same line.';
     bs.forEach(x => x.ok && g.LL(x.a, x.b, x.c, C.a, 2.5, [8, 6]));
     const n = Math.hypot(main.a, main.b), dx = -main.b / n, dy = main.a / n, base = intersect(P) ? I : projOrigin(main), s = 3.2 * Math.sin(2 * Math.PI * t) + (intersect(P) ? 0 : 0);
     const Q = [base[0] + dx * s, base[1] + dy * s], n1 = Math.hypot(a1, b1), n2 = Math.hypot(a2, b2), v1 = a1 * Q[0] + b1 * Q[1] + c1, v2 = a2 * Q[0] + b2 * Q[1] + c2, F1 = [Q[0] - a1 * v1 / (n1 * n1), Q[1] - b1 * v1 / (n1 * n1)], F2 = [Q[0] - a2 * v2 / (n2 * n2), Q[1] - b2 * v2 / (n2 * n2)];
@@ -289,9 +296,9 @@ const scenes = [
     const d1 = Math.abs(v1) / n1, d2 = Math.abs(v2) / n2;
     g.T('d = ' + fmt(d1, 2), (Q[0] + F1[0]) / 2, (Q[1] + F1[1]) / 2, C.c, { dx: 30, dy: 12, size: 13 }); g.T('d = ' + fmt(d2, 2), (Q[0] + F2[0]) / 2, (Q[1] + F2[1]) / 2, C.g, { dx: -30, dy: -12, size: 13 });
     g.D(Q[0], Q[1], C.a, 8); g.T('Q', Q[0], Q[1], C.a, { dx: 14, dy: -12, size: 14 });
-    return pick(lv, ['Point Q is ' + fmt(d1, 2) + ' from line 1 and ' + fmt(d2, 2) + ' from line 2: always equal on the bisector.'], ['Bisector: ' + eqStr(main.a, main.b, main.c, 2) + '.  Distances from Q: ' + fmt(d1, 2) + ' and ' + fmt(d2, 2) + ' (equal).']);
+    return pick(lv, ['Point Q is ' + fmt(d1, 2) + ' from line 1 and ' + fmt(d2, 2) + ' from line 2: always equal on the bisector.'], ['Bisector: ' + niceEq(main) + '.  Distances from Q: ' + fmt(d1, 2) + ' and ' + fmt(d2, 2) + ' (equal).']);
   },
-  out:(P, lv) => { const bs = bisectors(P).filter(x => x.ok); if (!bs.length) return 'The two lines are identical.'; return 'Bisector' + (bs.length > 1 ? 's: ' : ': ') + bs.map(x => eqStr(x.a, x.b, x.c, 2)).join('   and   '); } },
+  out:(P, lv) => { const bs = bisectors(P), ok = bs.filter(x => x.ok); if (!ok.length) return 'The two lines are identical.'; if (P.mode && ok.length > 1) { const m = bisPick(P, bs); return (P.mode === 'acute' ? 'Bisector of the acute angle: ' : P.mode === 'obtuse' ? 'Bisector of the obtuse angle: ' : 'Bisector containing P: ') + niceEq(m); } return 'Bisector' + (ok.length > 1 ? 's: ' : ': ') + ok.map(x => niceEq(x)).join('   and   '); } },
 
 { id:'stdpoints', tab:7, title:'Standard points of a triangle', tag:'Class 11–12', params:[['x1','x₁',-4],['y1','y₁',-2],['x2','x₂',5],['y2','y₂',-1],['x3','x₃',0],['y3','y₃',5]],
   f:['Four special centres: centroid, circumcentre, orthocentre, incentre.','G = ((x₁+x₂+x₃)/3, (y₁+y₂+y₃)/3);  H = A + B + C − 2·S;  I = (a·A + b·B + c·C)/(a + b + c)'],
@@ -346,7 +353,7 @@ const scenes = [
   f:['3 numbers: along, across, up.','AB = √(Δx² + Δy² + Δz²);  direction ratios = (Δx, Δy, Δz)'],
   fit:P => [[0, 0]], valid:P => fin(P.ax, P.ay, P.az, P.bx, P.by, P.bz),
   draw(g, t, C, lv, P) {
-    const ctx = g.ctx, ext = Math.max(3, ...[P.ax, P.ay, P.az, P.bx, P.by, P.bz].map(Math.abs)), L = ext + 1, u = Math.min(34, 135 / (ext + 1)), O = [240, 195], cs = .866;
+    const ctx = g.ctx, ext = Math.max(2, ...[P.ax, P.ay, P.az, P.bx, P.by, P.bz].map(Math.abs)), L = ext + 1, u = Math.min(40, 140 / (ext + 1)), O = [240, 195], cs = .866;
     const pr = (x, y, z) => [O[0] + (y - x) * cs * u, O[1] + (x + y) * .5 * u - z * u];
     const ln = (p0, p1, col, w, dash) => { const p = pr(...p0), q = pr(...p1); ctx.save(); ctx.strokeStyle = col; ctx.lineWidth = w; ctx.lineCap = 'round'; ctx.setLineDash(dash || []); ctx.beginPath(); ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0], q[1]); ctx.stroke(); ctx.restore(); };
     const tx = (s, p, col, dx, dy, size = 15) => { ctx.save(); ctx.font = '700 ' + size + 'px ' + FONT; ctx.fillStyle = col; ctx.textAlign = 'center'; ctx.fillText(s, p[0] + dx, p[1] + dy); ctx.restore(); };
@@ -379,6 +386,17 @@ function bisDir(P) { const dx = P.bx - P.ax, dy = P.by - P.ay, L = Math.hypot(dx
 function bisAmp(P) { return Math.max(Math.hypot(P.bx - P.ax, P.by - P.ay) * .65, 2); }
 function locusLine(P) { const dx = P.bx - P.ax, dy = P.by - P.ay; return [dx, dy, (P.ax * P.ax + P.ay * P.ay - P.bx * P.bx - P.by * P.by) / 2]; }
 function projOrigin(l) { const n2 = l.a * l.a + l.b * l.b; return [-l.a * l.c / n2, -l.b * l.c / n2]; }
+// Which bisector to follow: the acute / obtuse one, or the one containing a point (P.mode), else the first valid.
+function bisPick(P, bs) {
+  const ok = bs.filter(x => x.ok); if (ok.length < 2 || !P.mode) return ok[0];
+  const n1 = Math.hypot(P.a1, P.b1), n2 = Math.hypot(P.a2, P.b2);
+  if (P.mode === 'point') { const s1 = (P.a1 * P.px + P.b1 * P.py + P.c1) / n1, s2 = (P.a2 * P.px + P.b2 * P.py + P.c2) / n2; return s1 * s2 > 0 ? bs[0] : bs[1]; }
+  const u1 = [P.b1 / n1, -P.a1 / n1], u2 = [P.b2 / n2, -P.a2 / n2], dot = u1[0] * u2[0] + u1[1] * u2[1];
+  if (Math.abs(dot) < 1e-9) return ok[0];
+  const tgt = dot > 0 ? [u1[0] + u2[0], u1[1] + u2[1]] : [u1[0] - u2[0], u1[1] - u2[1]], cr = x => Math.abs(x.b * tgt[1] + x.a * tgt[0]);
+  const acute = cr(bs[0]) <= cr(bs[1]) ? bs[0] : bs[1];
+  return P.mode === 'acute' ? acute : (acute === bs[0] ? bs[1] : bs[0]);
+}
 function bisectors(P) {
   const n1 = Math.hypot(P.a1, P.b1), n2 = Math.hypot(P.a2, P.b2), mk = (s) => { const a = P.a1 / n1 + s * P.a2 / n2, b = P.b1 / n1 + s * P.b2 / n2, c = P.c1 / n1 + s * P.c2 / n2, m = Math.max(Math.abs(a), Math.abs(b)); if (m < 1e-9) return { ok: false }; let k = 1 / m; if ((Math.abs(a) > 1e-9 ? a : b) < 0) k = -k; return { ok: true, a: a * k, b: b * k, c: c * k }; };
   return [mk(-1), mk(1)];
@@ -407,7 +425,7 @@ function triPts(P) {
     if (t > .85) { const fx = [ox + cp * xs, oy + sp * xs], fy = [ox - sp * ys, oy + cp * ys]; g.L(px, py, fx[0], fx[1], C.c, 2, [6, 5]); g.L(px, py, fy[0], fy[1], C.g, 2, [6, 5]); }
     g.D(ox, oy, C.a, 7); g.T('O′', ox, oy, C.a, { dx: -16, dy: 16, size: 14 });
     g.T('X′', ox + cp * R, oy + sp * R, C.a, { dy: -14, size: 14 }); g.T('Y′', ox - sp * R, oy + cp * R, C.a, { dx: 14, size: 14 });
-    g.D(px, py, C.ink, 8); g.T('P(' + fmt(px) + ', ' + fmt(py) + ')', px, py, C.ink, { dx: 12, dy: -16, size: 14 });
+    g.D(px, py, C.ink, 8); g.T('P(' + fmt(px) + ', ' + fmt(py) + ')', px, py, C.ink, { dx: 14, dy: 20, align: 'left', size: 14 });
     const kk = t < .12 ? 0 : t < .5 ? 1 : t < .85 ? 2 : 3, rot = Math.abs(th) > 1e-9;
     return pick(lv, ['The old axes (dark). Where will P be in new axes?', 'Slide the origin to (' + fmt(h) + ', ' + fmt(k) + ').', rot ? 'Turn the axes by ' + fmt(th) + '°.' : 'The axes keep their direction (no turn).', 'In the new axes P is at (' + fmt(xs, 3) + ', ' + fmt(ys, 3) + ').'],
       ['Old system XOY, P(' + fmt(px) + ', ' + fmt(py) + ').', 'Translate: new origin O′(h, k) = (' + fmt(h) + ', ' + fmt(k) + ').', rot ? 'Rotate by θ = ' + fmt(th) + '°.' : 'θ = 0°: no rotation.', rot ? 'x′ = (x−h)cos θ + (y−k)sin θ = ' + fmt(xs, 3) + ',  y′ = −(x−h)sin θ + (y−k)cos θ = ' + fmt(ys, 3) + '.' : 'x′ = x − h = ' + fmt(px) + ' − ' + fmt(h) + ' = ' + fmt(xs, 3) + ',  y′ = y − k = ' + fmt(py) + ' − ' + fmt(k) + ' = ' + fmt(ys, 3) + '.'])[kk];
@@ -458,6 +476,15 @@ const BINDINGS = [
 ];
 function tri(v) { return { x1:v[0], y1:v[1], x2:v[2], y2:v[3], x3:v[4], y3:v[5] }; }
 function circ(v) { const r2 = v[0] * v[0] / 4 + v[1] * v[1] / 4 - v[2]; return { cx:-v[0] / 2, cy:-v[1] / 2, r:Math.sqrt(r2), a:v[3], b:v[4], c:v[5] }; }
+// Tab 7 triangle cards (all use vertices A, B, C) and tab 6 bisector cards
+['tv', 'gc', 'ic', 'cc', 'oc', 'me', 'al', 'pb', 'cl', 'ol', 'ib', 'pd', 'ex', 'eu'].forEach(p => BINDINGS.push({ scene:'stdpoints', ids:[p + 'Ax', p + 'Ay', p + 'Bx', p + 'By', p + 'Cx', p + 'Cy'], get:v => tri(v) }));
+const lines6 = v => ({ a1:v[0], b1:v[1], c1:v[2], a2:v[3], b2:v[4], c2:v[5] });
+BINDINGS.push(
+  { scene:'bisector', ids:['bsA1', 'bsB1', 'bsC1', 'bsA2', 'bsB2', 'bsC2'], get:lines6 },
+  { scene:'bisector', ids:['acA1', 'acB1', 'acC1', 'acA2', 'acB2', 'acC2'], get:v => Object.assign(lines6(v), { mode:'acute' }) },
+  { scene:'bisector', ids:['obA1', 'obB1', 'obC1', 'obA2', 'obB2', 'obC2'], get:v => Object.assign(lines6(v), { mode:'obtuse' }) },
+  { scene:'bisector', ids:['cpA1', 'cpB1', 'cpC1', 'cpA2', 'cpB2', 'cpC2', 'cpX', 'cpY'], get:v => Object.assign(lines6(v), { mode:'point', px:v[6], py:v[7] }) }
+);
 const SC = {}; scenes.forEach(s => { SC[s.id] = s; });
 
 const TAB_INFO = {
@@ -487,7 +514,7 @@ function detectCard() {
     if (!v.every(Number.isFinite)) return { binding: bnd, params: null, title: title.trim() };
     let p = null; try { p = bnd.get(v, readRadio); } catch (e) { p = null; }
     const sc = SC[bnd.scene];
-    if (p && sc.valid(p) && Object.values(p).every(x => Number.isFinite(x))) return { binding: bnd, params: p, title: title.trim() };
+    if (p && sc.valid(p) && Object.entries(p).every(([k, x]) => k === 'mode' || Number.isFinite(x))) return { binding: bnd, params: p, title: title.trim() };
     return { binding: bnd, params: null, title: title.trim() };
   }
   return null;
@@ -531,6 +558,7 @@ const css = `
 .cga-out small{display:block;font-weight:600;color:#9a4a16;font-size:.7rem;letter-spacing:.06em;text-transform:uppercase;margin-bottom:2px}
 .cga-note{margin:0;color:#56627f;font-size:.88rem}
 .cga-msg{margin:0;padding:10px 12px;border-radius:10px;background:#fff7e0;border:1px solid #f1d98a;font-size:.9rem}
+@media (max-width:600px){.cga-fab{right:14px;bottom:14px;padding:13px 15px}.cga-fab-t{display:none}}
 @media (prefers-reduced-motion:reduce){.cga-drawer{transition:none}}
 `;
 const style = document.createElement('style'); style.textContent = css; document.head.appendChild(style);
@@ -539,7 +567,7 @@ const style = document.createElement('style'); style.textContent = css; document
 let level = 'school';
 try { level = localStorage.getItem('cgaLevel') === 'inter' ? 'inter' : 'school'; } catch (e) {}
 const fab = document.createElement('button');
-fab.className = 'cga-fab'; fab.type = 'button'; fab.setAttribute('aria-expanded', 'false');
+fab.className = 'cga-fab'; fab.type = 'button'; fab.setAttribute('aria-expanded', 'false'); fab.setAttribute('aria-label', 'Explain this topic');
 const drawer = document.createElement('aside');
 drawer.className = 'cga-drawer'; drawer.setAttribute('role', 'dialog'); drawer.setAttribute('aria-label', 'Visual explainer'); drawer.setAttribute('aria-hidden', 'true');
 drawer.innerHTML =
@@ -626,7 +654,9 @@ function syncLinked(forceReplay) {
 function updateFab(found) {
   const linked = !!(found && found.params);
   fab.classList.toggle('linked', linked);
-  fab.innerHTML = '<span aria-hidden="true">▶</span> ' + (linked ? 'Explain this card' : 'Explain this topic');
+  const label = linked ? 'Explain this card' : 'Explain this topic';
+  fab.setAttribute('aria-label', label);
+  fab.innerHTML = '<span aria-hidden="true">▶</span><span class="cga-fab-t">' + label + '</span>';
 }
 
 // ---------- Frame loop ----------
