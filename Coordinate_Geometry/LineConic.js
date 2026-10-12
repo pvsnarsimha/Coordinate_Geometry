@@ -3923,11 +3923,10 @@ function renderDiameterConicCard() {
                 }
                 
                 // Generate parabola points
-                for (let x = 0; x <= maxX; x += 0.05) {
-                    if (4*a*x >= 0) {
-                        const y = Math.sqrt(4*a*x);
-                        conicPoints.push({x: x, y: y}, {x: x, y: -y});
-                    }
+                const yLim = Math.sqrt(4*a*maxX);
+                for (let i = -200; i <= 200; i++) {   // one continuous curve, bottom to top
+                    const y = yLim * i / 200;
+                    conicPoints.push({x: y*y / (4*a), y: y});
                 }
                 
                 // Generate diameter line
@@ -4265,12 +4264,10 @@ function renderParabolaReflectionCard() {
             
             // Generate parabola points
             const parabolaPoints = [];
-            for (let x = 0; x <= maxX; x += 0.05) {
-                if (4*a*x >= 0) {
-                    const y = Math.sqrt(4*a*x);
-                    parabolaPoints.push({x: x, y: y});
-                    parabolaPoints.push({x: x, y: -y});
-                }
+            const yLim = Math.sqrt(4*a*maxX);
+            for (let i = -200; i <= 200; i++) {   // one continuous curve, bottom to top
+                const y = yLim * i / 200;
+                parabolaPoints.push({x: y*y / (4*a), y: y});
             }
             
             // Ray (incoming, parallel to axis)
