@@ -1503,7 +1503,9 @@ function renderChordOfContactCard() {
             const B_coef = y1 + E/2;
             const C_coef = (D/2)*x1 + (E/2)*y1 + F;
             
-            const chordEq = `${fmt(A_coef)}x + ${fmt(B_coef)}y + ${fmt(C_coef)} = 0`;
+            // P at the centre of the circle: both coefficients vanish, the polar is the line at infinity
+            const atCentre = Math.abs(A_coef) < 1e-10 && Math.abs(B_coef) < 1e-10;
+            const chordEq = atCentre ? 'No chord of contact' : `${fmt(A_coef)}x + ${fmt(B_coef)}y + ${fmt(C_coef)} = 0`;
             
             let steps = [
                 `📍 STEP 1: Identify circle and external point`,
@@ -1541,6 +1543,13 @@ function renderChordOfContactCard() {
                 `   • The two tangents from P touch the circle at points where this chord intersects the circle`
             ];
             
+            if (atCentre) {
+                const i7 = steps.indexOf('📍 STEP 7: Geometric interpretation');
+                steps.splice(i7, steps.length - i7,
+                    `📍 STEP 7: P is the centre of the circle`,
+                    `   • The coefficients of x and y are both 0, so T = ${fmt(C_coef)} can never be 0`,
+                    `   • The polar of the centre is the line at infinity: there are no tangents and no chord of contact`);
+            }
             if (!isExternal) {
                 steps.push(``);
                 steps.push(`⚠️ NOTE: Point P is NOT external to the circle.`);
@@ -1564,7 +1573,9 @@ function renderChordOfContactCard() {
             
             // Draw chord of contact line
             let chordPoints = [];
-            if (Math.abs(B_coef) > 1e-10) {
+            if (atCentre) {
+                chordPoints = [];
+            } else if (Math.abs(B_coef) > 1e-10) {
                 const m = -A_coef/B_coef;
                 const intercept = -C_coef/B_coef;
                 chordPoints = [
@@ -1637,7 +1648,7 @@ function renderChordOfContactCard() {
                 }
             });
             
-            resultDiv.innerHTML = `\\( ${chordEq} \\)<br><span style="font-size:0.9rem;">${isExternal ? 'Chord of contact from P to circle' : (Math.abs(distSq - radiusSq) < 1e-10 ? 'P is on the circle → tangent at P' : 'P is inside circle → no real chord')}</span>`;
+            resultDiv.innerHTML = atCentre ? `P is the centre of the circle: its polar is the line at infinity, so there is no chord of contact.` : `\\( ${chordEq} \\)<br><span style="font-size:0.9rem;">${isExternal ? 'Chord of contact from P to circle' : (Math.abs(distSq - radiusSq) < 1e-10 ? 'P is on the circle → tangent at P' : 'P is inside circle → no real chord')}</span>`;
             stepsDiv.innerHTML = steps.map((txt, i) => 
                 `<div class="step-row">
                     <span class="step-marker">${i+1}</span>
@@ -1785,7 +1796,7 @@ function renderPolePolarCard() {
     
     document.getElementById('poleExampleInside').addEventListener('click', () => {
         dInp.value = -4; eInp.value = -6; fInp.value = 9;
-        pxInp.value = 2; pyInp.value = 3; // Center
+        pxInp.value = 3; pyInp.value = 4; // Inside point (the centre itself has no finite polar)
         updateCircleDisplay();
         update();
     });
@@ -1820,7 +1831,9 @@ function renderPolePolarCard() {
             const B_coef = y1 + E/2;
             const C_coef = (D/2)*x1 + (E/2)*y1 + F;
             
-            const polarEq = `${fmt(A_coef)}x + ${fmt(B_coef)}y + ${fmt(C_coef)} = 0`;
+            // Pole at the centre: both coefficients vanish, the polar is the line at infinity
+            const atCentre = Math.abs(A_coef) < 1e-10 && Math.abs(B_coef) < 1e-10;
+            const polarEq = atCentre ? 'Line at infinity (no finite polar)' : `${fmt(A_coef)}x + ${fmt(B_coef)}y + ${fmt(C_coef)} = 0`;
             
             let steps = [
                 `📍 STEP 1: Identify circle and pole point`,
@@ -1861,6 +1874,14 @@ function renderPolePolarCard() {
                 `     - If P lies on the polar of Q, then Q lies on the polar of P`
             ];
             
+            if (atCentre) {
+                const i7 = steps.indexOf('📍 STEP 7: Geometric interpretation');
+                steps.splice(i7, steps.length - i7,
+                    `📍 STEP 7: The pole is the centre of the circle`,
+                    `   • The coefficients of x and y are both 0, so T = ${fmt(C_coef)} can never be 0`,
+                    `   • The polar of the centre is the line at infinity: there is no finite polar line`);
+            }
+            
             // Draw graph
             const minX = centerX - radius - 3;
             const maxX = centerX + radius + 3;
@@ -1878,7 +1899,9 @@ function renderPolePolarCard() {
             
             // Draw polar line
             let polarPoints = [];
-            if (Math.abs(B_coef) > 1e-10) {
+            if (atCentre) {
+                polarPoints = [];
+            } else if (Math.abs(B_coef) > 1e-10) {
                 const m = -A_coef/B_coef;
                 const intercept = -C_coef/B_coef;
                 polarPoints = [
@@ -1951,7 +1974,7 @@ function renderPolePolarCard() {
                 }
             });
             
-            resultDiv.innerHTML = `\\( ${polarEq} \\)<br><span style="font-size:0.9rem;">Pole P(${fmt(x1)}, ${fmt(y1)}) → Polar: ${polarEq}</span>`;
+            resultDiv.innerHTML = atCentre ? `Pole P is the centre of the circle: its polar is the line at infinity (no finite polar line).` : `\\( ${polarEq} \\)<br><span style="font-size:0.9rem;">Pole P(${fmt(x1)}, ${fmt(y1)}) → Polar: ${polarEq}</span>`;
             stepsDiv.innerHTML = steps.map((txt, i) => 
                 `<div class="step-row">
                     <span class="step-marker">${i+1}</span>
@@ -3495,7 +3518,8 @@ function renderTangencyRectHyperbolaCard() {
             <strong>Tangency Condition for Rectangular Hyperbola xy = c²:</strong><br>
             • Line y = mx + k is tangent if k² + 4mc² = 0<br>
             • This requires m < 0 for real tangents<br>
-            • The point of contact is (-k/(2m), -k/2) or equivalently (c/√(-m), c√(-m))
+            • The point of contact is (-k/(2m), k/2); for k > 0 this is (c/√(-m), c√(-m))<br>
+            • A horizontal line (m = 0) meets xy = c² exactly once (it is parallel to an asymptote), so it is never a tangent
         </div>
     `;
     
@@ -3544,7 +3568,8 @@ function renderTangencyRectHyperbolaCard() {
             
             // Tangency condition: k² + 4mc² = 0
             const conditionValue = k*k + 4*m*c*c;
-            const satisfiesCondition = Math.abs(conditionValue) < 1e-10;
+            const isHoriz = Math.abs(m) < 1e-12;   // horizontal line: parallel to an asymptote
+            const satisfiesCondition = !isHoriz && Math.abs(conditionValue) < 1e-10;
             
             let steps = [
                 `📍 STEP 1: Identify rectangular hyperbola and line`,
@@ -3566,8 +3591,12 @@ function renderTangencyRectHyperbolaCard() {
                 ``,
                 `📍 STEP 5: ${satisfiesCondition ? 'Line is TANGENT' : 'Line is NOT tangent'}`,
                 satisfiesCondition ? 
-                    `   • The point of contact is x = -k/(2m) = ${fmt(-k/(2*m))}, y = -k/2 = ${fmt(-k/2)}` :
-                    `   • ${discriminant > 0 ? 'Line is secant (2 intersections)' : 'Line does not intersect'}`
+                    `   • The point of contact is x = -k/(2m) = ${fmt(-k/(2*m))}, y = mx + k = k/2 = ${fmt(k/2)}` :
+                    (isHoriz ?
+                        (Math.abs(k) < 1e-12
+                            ? `   • The line y = 0 is an asymptote: it never meets the hyperbola`
+                            : `   • A horizontal line is parallel to the asymptote y = 0 and meets xy = c² exactly once, at (${fmt(c*c/k)}, ${fmt(k)}); this is not a tangent`) :
+                        `   • ${discriminant > 0 ? 'Line is secant (2 intersections)' : 'Line does not intersect'}`)
             ];
             
             // Draw graph
@@ -3597,7 +3626,9 @@ function renderTangencyRectHyperbolaCard() {
             const disc = B_coef*B_coef - 4*A_coef*C_coef;
             let intersectionPoints = [];
             
-            if (Math.abs(A_coef) > 1e-10 && disc >= 0) {
+            if (isHoriz) {
+                if (Math.abs(k) > 1e-12) intersectionPoints.push({x: c*c / k, y: k});
+            } else if (Math.abs(A_coef) > 1e-10 && disc >= 0) {
                 const sqrtDisc = Math.sqrt(disc);
                 const x1 = (-B_coef + sqrtDisc) / (2*A_coef);
                 const x2 = (-B_coef - sqrtDisc) / (2*A_coef);
@@ -3688,9 +3719,12 @@ function renderTangencyRectHyperbolaCard() {
             const resultText = satisfiesCondition ? 
                 `✅ The line is TANGENT to the rectangular hyperbola!<br>
                 Condition: k² + 4mc² = ${fmt(conditionValue)} = 0<br>
-                Point of contact: (${fmt(-k/(2*m))}, ${fmt(-k/2)})` :
+                Point of contact: (${fmt(-k/(2*m))}, ${fmt(k/2)})` :
+                (isHoriz ?
+                `❌ The line is NOT a tangent: a horizontal line is parallel to an asymptote of xy = c²<br>
+                ${Math.abs(k) < 1e-12 ? 'y = 0 is an asymptote and never meets the hyperbola' : `It meets the hyperbola exactly once, at (${fmt(c*c/k)}, ${fmt(k)})`}` :
                 `❌ The line is ${disc > 0 ? 'SECANT' : 'NOT intersecting'}<br>
-                Condition: k² + 4mc² = ${fmt(conditionValue)} ≠ 0`;
+                Condition: k² + 4mc² = ${fmt(conditionValue)} ≠ 0`);
             
             resultDiv.innerHTML = resultText;
             
@@ -3859,8 +3893,10 @@ function renderDiameterConicCard() {
             if (conicType === 'parabola') {
                 const a = validatePositiveNumber(paraAInp.value, 'a');
                 // For parabola y² = 4ax, diameter for chords with slope m: y = 2a/m
-                const yIntercept = 2*a/m;
-                diameterEq = `y = ${fmt(yIntercept)} (horizontal line)`;
+                const noDiam = Math.abs(m) < 1e-12;
+                diameterEq = noDiam
+                    ? `\\text{No diameter: chords parallel to the axis (m = 0) meet the parabola only once}`
+                    : `y = ${fmt(2*a/m)}\\ \\text{(horizontal line)}`;
                 
                 steps = [
                     `📍 STEP 1: Parabola: y² = 4ax = 4·${fmt(a)}x = ${fmt(4*a)}x`,
@@ -3879,6 +3915,12 @@ function renderDiameterConicCard() {
                     `   • y = 2a/m = 2·${fmt(a)}/${fmt(m)} = ${fmt(2*a/m)}`,
                     `   • This is a horizontal line parallel to x-axis`
                 ];
+                if (noDiam) {
+                    steps.splice(8, steps.length - 8,
+                        `📍 STEP 3: m = 0 means the chords are parallel to the axis of the parabola`,
+                        `   • Each such line y = c meets y² = 4ax in only ONE point, so there are no chords`,
+                        `   • Hence no midpoints and no diameter (the formula y = 2a/m is undefined)`);
+                }
                 
                 // Generate parabola points
                 for (let x = 0; x <= maxX; x += 0.05) {
@@ -3889,7 +3931,7 @@ function renderDiameterConicCard() {
                 }
                 
                 // Generate diameter line
-                diameterPoints = [
+                diameterPoints = noDiam ? [] : [
                     {x: minX, y: 2*a/m},
                     {x: maxX, y: 2*a/m}
                 ];
@@ -3898,8 +3940,9 @@ function renderDiameterConicCard() {
                 const a = validatePositiveNumber(diamAInp.value, 'a');
                 const b = validatePositiveNumber(diamBInp.value, 'b');
                 // For ellipse x²/a² + y²/b² = 1, diameter: y = -b²/(a²m)·x
-                const slope = -b*b/(a*a*m);
-                diameterEq = `y = ${fmt(slope)}x`;
+                const vert = Math.abs(m) < 1e-12;   // horizontal chords: midpoints on the y-axis
+                const slope = vert ? 0 : -b*b/(a*a*m);
+                diameterEq = vert ? `x = 0\\ \\text{(the y-axis)}` : `y = ${fmt(slope)}x`;
                 
                 steps = [
                     `📍 STEP 1: Ellipse: x²/${fmt(a)}² + y²/${fmt(b)}² = 1`,
@@ -3919,6 +3962,9 @@ function renderDiameterConicCard() {
                     `   • y = -b²/(a²m)·x`,
                     `   • y = -${fmt(b*b)}/(${fmt(a*a)}·${fmt(m)})·x = ${fmt(slope)}x`
                 ];
+                if (vert) steps.splice(-3, 3,
+                    `   • With m = 0 the chords are horizontal and x_mid = -a²mc/(b² + a²m²) = 0 for every chord`,
+                    `   • So the midpoints lie on the line x = 0 (the y-axis); the formula y = -b²x/(a²m) is undefined for m = 0`);
                 
                 // Generate ellipse points
                 for (let t = 0; t <= 2 * Math.PI; t += 0.05) {
@@ -3929,7 +3975,7 @@ function renderDiameterConicCard() {
                 }
                 
                 // Generate diameter line
-                diameterPoints = [
+                diameterPoints = vert ? [{x: 0, y: minY}, {x: 0, y: maxY}] : [
                     {x: minX, y: slope * minX},
                     {x: maxX, y: slope * maxX}
                 ];
@@ -3938,8 +3984,9 @@ function renderDiameterConicCard() {
                 const a = validatePositiveNumber(diamAInp.value, 'a');
                 const b = validatePositiveNumber(diamBInp.value, 'b');
                 // For hyperbola x²/a² - y²/b² = 1, diameter: y = b²/(a²m)·x
-                const slope = b*b/(a*a*m);
-                diameterEq = `y = ${fmt(slope)}x`;
+                const vert = Math.abs(m) < 1e-12;   // horizontal chords: midpoints on the y-axis
+                const slope = vert ? 0 : b*b/(a*a*m);
+                diameterEq = vert ? `x = 0\\ \\text{(the y-axis)}` : `y = ${fmt(slope)}x`;
                 
                 steps = [
                     `📍 STEP 1: Hyperbola: x²/${fmt(a)}² - y²/${fmt(b)}² = 1`,
@@ -3959,6 +4006,9 @@ function renderDiameterConicCard() {
                     `   • y = b²/(a²m)·x`,
                     `   • y = ${fmt(b*b)}/(${fmt(a*a)}·${fmt(m)})·x = ${fmt(slope)}x`
                 ];
+                if (vert) steps.splice(-3, 3,
+                    `   • With m = 0 the chords are horizontal and x_mid = a²mc/(b² - a²m²) = 0 for every chord`,
+                    `   • So the midpoints lie on the line x = 0 (the y-axis); the formula y = b²x/(a²m) is undefined for m = 0`);
                 
                 // Generate hyperbola points
                 maxX = a + 4;
@@ -3979,7 +4029,7 @@ function renderDiameterConicCard() {
                 }
                 
                 // Generate diameter line
-                diameterPoints = [
+                diameterPoints = vert ? [{x: 0, y: minY}, {x: 0, y: maxY}] : [
                     {x: minX, y: slope * minX},
                     {x: maxX, y: slope * maxX}
                 ];
@@ -4160,21 +4210,24 @@ function renderParabolaReflectionCard() {
             intersectYSpan.textContent = fmt(y0);
             focusXSpan.textContent = fmt(a);
             
-            // Calculate slopes for angle verification
-            // Tangent slope at P: for y² = 4ax, dy/dx = 2a/y
-            const tangentSlope = 2*a / y0;
+            // Direction vectors (work for vertical lines too)
+            // Tangent at P: for y² = 4ax, dy/dx = 2a/y  →  direction (y0, 2a)
+            const tangentSlope = 2*a / y0;                 // Infinity at the vertex (vertical tangent)
+            const tanDir = {x: y0, y: 2*a};
+            const pfDir = {x: a - xP, y: -y0};             // P → F
+            const axisDir = {x: 1, y: 0};
+            const slopePF = Math.abs(pfDir.x) < 1e-12 ? Infinity : pfDir.y / pfDir.x;
+            const fmtSlope = s => isFinite(s) ? fmt(s) : 'undefined (vertical)';
             
-            // Slope of PF (from P to focus)
-            const slopePF = (0 - y0) / (a - xP);
-            
-            // Slope of axis (horizontal line)
-            const slopeAxis = 0;
-            
-            // Calculate angles to verify reflection property
-            // Angle between tangent and PF = angle between tangent and axis
-            const angleTanPF = Math.abs(Math.atan(tangentSlope) - Math.atan(slopePF));
-            const angleTanAxis = Math.abs(Math.atan(tangentSlope) - Math.atan(slopeAxis));
-            const areEqual = Math.abs(angleTanPF - angleTanAxis) < 0.001;
+            // Acute angle between two LINES: difference of direction angles reduced mod π
+            const lineAngle = (u, v) => {
+                let d = Math.abs(Math.atan2(u.y, u.x) - Math.atan2(v.y, v.x)) % Math.PI;
+                return Math.min(d, Math.PI - d);
+            };
+            const angleTanPF = lineAngle(tanDir, pfDir);
+            const angleTanAxis = lineAngle(tanDir, axisDir);
+            const areEqual = Math.abs(angleTanPF - angleTanAxis) < 1e-6;
+            const deg = r => fmt(r * 180 / Math.PI);
             
             let steps = [
                 `📍 STEP 1: Parabola: y² = 4ax = 4·${fmt(a)}x = ${fmt(4*a)}x`,
@@ -4188,14 +4241,15 @@ function renderParabolaReflectionCard() {
                 ``,
                 `📍 STEP 3: Find slope of tangent at P`,
                 `   • For y² = 4ax, differentiate: 2y·dy/dx = 4a → dy/dx = 2a/y`,
-                `   • Tangent slope m_t = 2·${fmt(a)}/${fmt(y0)} = ${fmt(tangentSlope)}`,
+                `   • Tangent slope m_t = 2·${fmt(a)}/${fmt(y0)} = ${fmtSlope(tangentSlope)}`,
                 ``,
                 `📍 STEP 4: Find slope of line from P to focus F`,
-                `   • m_PF = (${fmt(0)} - ${fmt(y0)})/(${fmt(a)} - ${fmt(xP)}) = ${fmt(slopePF)}`,
+                `   • m_PF = (${fmt(0)} - ${fmt(y0)})/(${fmt(a)} - ${fmt(xP)}) = ${fmtSlope(slopePF)}`,
                 ``,
                 `📍 STEP 5: Reflection property verification`,
-                `   • Angle between tangent and PF = tan⁻¹(${fmt(tangentSlope)}) - tan⁻¹(${fmt(slopePF)}) = ${fmt(angleTanPF)} rad`,
-                `   • Angle between tangent and axis (horizontal) = tan⁻¹(${fmt(tangentSlope)}) - 0 = ${fmt(angleTanAxis)} rad`,
+                `   • Angle between the lines (tangent, PF) = ${deg(angleTanPF)}°`,
+                `   • Angle between the lines (tangent, axis) = ${deg(angleTanAxis)}°`,
+                `   • (angles between lines are measured mod 180°, taking the acute one)`,
                 `   • ${areEqual ? 'Angles are EQUAL → Reflection property holds ✓' : 'Angles are NOT equal'}`,
                 ``,
                 `📍 STEP 6: Geometric interpretation`,
@@ -4220,8 +4274,9 @@ function renderParabolaReflectionCard() {
             }
             
             // Ray (incoming, parallel to axis)
+            // The ray travels in the −x direction: it starts inside the dish (right of P) and hits P
             const rayPoints = [
-                {x: minX, y: y0},
+                {x: maxX, y: y0},
                 {x: xP, y: y0}
             ];
             
@@ -4259,7 +4314,7 @@ function renderParabolaReflectionCard() {
                     fill: false
                 },
                 {
-                    label: 'Incoming Ray (parallel to axis)',
+                    label: 'Incoming Ray (from the right, parallel to axis)',
                     data: rayPoints,
                     backgroundColor: 'transparent',
                     borderColor: '#3498db',
@@ -4331,7 +4386,7 @@ function renderParabolaReflectionCard() {
             const resultText = areEqual ?
                 `✅ Reflection property VERIFIED!<br>
                 The ray parallel to the axis reflects through the focus (${fmt(a)}, 0).<br>
-                Angle with tangent: ${fmt(angleTanPF.toFixed(4))} rad = ${fmt(angleTanAxis.toFixed(4))} rad` :
+                Angle between tangent and focal line PF = angle between tangent and axis = ${deg(angleTanPF)}°` :
                 `❌ Something went wrong - angles should be equal`;
             
             resultDiv.innerHTML = resultText;

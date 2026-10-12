@@ -2681,6 +2681,9 @@ function renderFootAlongDirectionCard() {
             attachStepsToggle();
             
         } catch (e) {
+            resultDiv.innerHTML = '';
+            stepsDiv.innerHTML = '';
+            if (typeof destroyGraph === 'function') destroyGraph();
             showError(e.message, [x1Inp, y1Inp, dxInp, dyInp, aInp, bInp, cInp]);
         }
     }

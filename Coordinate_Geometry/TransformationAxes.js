@@ -1273,10 +1273,9 @@ function renderRemoveXYTermCard() {
             );
             
             // Plot the real conic: as given (x, y) and in the rotated axes (X, Y)
-            const datasets = [
-                taImplicitDataset({A, B, C, D, E, F}, minX, maxX, minY, maxY, '#1f7f6a', 'Original conic (x, y)'),
-                taImplicitDataset({A: A_prime, B: 0, C: C_prime, D: D_prime, E: E_prime, F: F_prime}, minX, maxX, minY, maxY, '#d44c2f', 'Same conic in rotated axes (X, Y)', [6, 4])
-            ];
+            const curves = taImplicitCurves({A, B, C, D, E, F}, minX, maxX, minY, maxY, '#1f7f6a', 'Original conic (x, y)')
+                .concat(taImplicitCurves({A: A_prime, B: 0, C: C_prime, D: D_prime, E: E_prime, F: F_prime}, minX, maxX, minY, maxY, '#d44c2f', 'Same conic in rotated axes (X, Y)', [6, 4]));
+            const datasets = [];
             
             destroyGraph();
             const ctx = document.getElementById('coordinateGraph').getContext('2d');
@@ -1295,7 +1294,7 @@ function renderRemoveXYTermCard() {
                 }
             });
             
-            drawGraph([], [], axes);
+            drawGraph([], [], axes.concat(curves), {bounds: {minX, maxX, minY, maxY}, skipAnimation: true});
             
             stepsDiv.innerHTML = steps.map((txt, i) => 
                 `<div class="step-row">
@@ -1768,8 +1767,8 @@ function renderFindOriginalAfterTranslationCard() {
             ];
             
             // Draw the real original curve (sampled from the equation)
-            const origCurve = taImplicitDataset(taSubst(taParsePoly(equation), [1, 0, -h], [0, 1, -k]), minX, maxX, minY, maxY, '#1f7f6a', 'Original Curve');
-            const datasets = [origCurve];
+            const curves = taImplicitCurves(origPoly, minX, maxX, minY, maxY, '#1f7f6a', 'Original Curve');
+            const datasets = [];
             
             destroyGraph();
             const ctx = document.getElementById('coordinateGraph').getContext('2d');
@@ -1788,7 +1787,7 @@ function renderFindOriginalAfterTranslationCard() {
                 }
             });
             
-            drawGraph([], specialPoints, axes);
+            drawGraph([], specialPoints, axes.concat(curves), {bounds: {minX, maxX, minY, maxY}, skipAnimation: true});
             
             stepsDiv.innerHTML = steps.map((txt, i) => 
                 `<div class="step-row">
@@ -1989,8 +1988,8 @@ function renderFindOriginalAfterRotationCard() {
             );
             
             // Draw the real original curve (sampled from the equation)
-            const origCurve = taImplicitDataset(taSubst(taParsePoly(equation), [cosTheta, sinTheta, 0], [-sinTheta, cosTheta, 0]), minX, maxX, minY, maxY, '#1f7f6a', 'Original Curve');
-            const datasets = [origCurve];
+            const curves = taImplicitCurves(origPoly, minX, maxX, minY, maxY, '#1f7f6a', 'Original Curve');
+            const datasets = [];
             
             destroyGraph();
             const ctx = document.getElementById('coordinateGraph').getContext('2d');
@@ -2009,7 +2008,7 @@ function renderFindOriginalAfterRotationCard() {
                 }
             });
             
-            drawGraph([], [], axes);
+            drawGraph([], [], axes.concat(curves), {bounds: {minX, maxX, minY, maxY}, skipAnimation: true});
             
             stepsDiv.innerHTML = steps.map((txt, i) => 
                 `<div class="step-row">
@@ -2860,7 +2859,8 @@ function renderChangeAxesSymmetryCard() {
                 addFrame(0, 0, cosT, sinT);
             }
             
-            const datasets = [taImplicitDataset(coeffs, minX, maxX, minY, maxY, '#1f7f6a', 'Original curve')];
+            const curves = taImplicitCurves(coeffs, minX, maxX, minY, maxY, '#1f7f6a', 'Original curve');
+            const datasets = [];
             
             destroyGraph();
             const ctx = document.getElementById('coordinateGraph').getContext('2d');
@@ -2879,7 +2879,7 @@ function renderChangeAxesSymmetryCard() {
                 }
             });
             
-            drawGraph([], specialPoints, axes);
+            drawGraph([], specialPoints, axes.concat(curves), {bounds: {minX, maxX, minY, maxY}, skipAnimation: true});
             
             stepsDiv.innerHTML = steps.map((txt, i) => 
                 `<div class="step-row">
@@ -3987,9 +3987,10 @@ function taSubst(p, L1, L2) {
     return out;
 }
 
-// Chart.js dataset tracing the real curve P(x, y) = 0 inside the window (marching squares).
-function taImplicitDataset(p, x0, x1, y0, y1, color, label, dash) {
-    const N = 200, dx = (x1 - x0) / N, dy = (y1 - y0) / N;
+// Polylines tracing the real curve P(x, y) = 0 inside the window (marching squares, chained),
+// returned as line-segment objects for drawGraph: [{points, color, label, width, dash}, ...].
+function taImplicitCurves(p, x0, x1, y0, y1, color, label, dash) {
+    const N = 160, dx = (x1 - x0) / N, dy = (y1 - y0) / N;
     const f = (x, y) => p.A*x*x + p.B*x*y + p.C*y*y + p.D*x + p.E*y + p.F;
     const g = [];
     for (let j = 0; j <= N; j++) {
@@ -3997,28 +3998,52 @@ function taImplicitDataset(p, x0, x1, y0, y1, color, label, dash) {
         for (let i = 0; i <= N; i++) row.push(f(x0 + i*dx, y0 + j*dy));
         g.push(row);
     }
-    const pts = [];
-    const cross = (xa, ya, va, xb, yb, vb) => {
+    const nodes = new Map();   // edge key -> {x, y, nb: [keys]}
+    const node = (key, xa, ya, va, xb, yb, vb) => {
         if ((va >= 0) === (vb >= 0)) return null;
-        const t = va / (va - vb);
-        return { x: xa + t*(xb - xa), y: ya + t*(yb - ya) };
+        if (!nodes.has(key)) {
+            const t = va / (va - vb);
+            nodes.set(key, { x: xa + t*(xb - xa), y: ya + t*(yb - ya), nb: [] });
+        }
+        return key;
     };
+    const link = (a, b) => { if (a && b && a !== b) { nodes.get(a).nb.push(b); nodes.get(b).nb.push(a); } };
     for (let j = 0; j < N; j++) {
         for (let i = 0; i < N; i++) {
             const xa = x0 + i*dx, xb = xa + dx, ya = y0 + j*dy, yb = ya + dy;
             const v00 = g[j][i], v10 = g[j][i+1], v11 = g[j+1][i+1], v01 = g[j+1][i];
-            const bot = cross(xa, ya, v00, xb, ya, v10), rgt = cross(xb, ya, v10, xb, yb, v11);
-            const top = cross(xa, yb, v01, xb, yb, v11), lft = cross(xa, ya, v00, xa, yb, v01);
+            const bot = node('h' + i + ',' + j, xa, ya, v00, xb, ya, v10);
+            const rgt = node('v' + (i+1) + ',' + j, xb, ya, v10, xb, yb, v11);
+            const top = node('h' + i + ',' + (j+1), xa, yb, v01, xb, yb, v11);
+            const lft = node('v' + i + ',' + j, xa, ya, v00, xa, yb, v01);
             const e = [bot, rgt, top, lft].filter(Boolean);
-            const seg = (a, b) => { pts.push(a, b, { x: null, y: null }); };
-            if (e.length === 2) seg(e[0], e[1]);
-            else if (e.length === 4) { seg(bot, lft); seg(top, rgt); }
+            if (e.length === 2) link(e[0], e[1]);
+            else if (e.length === 4) { link(bot, lft); link(top, rgt); }
         }
     }
-    return {
-        label: label, data: pts, backgroundColor: 'transparent', borderColor: color, borderWidth: 2,
-        pointRadius: 0, showLine: true, fill: false, spanGaps: false, borderDash: dash || []
+    const used = new Set(), out = [];
+    const walk = (start) => {
+        const pts = [];
+        let prev = null, cur = start;
+        while (cur && !used.has(cur)) {
+            used.add(cur);
+            const n = nodes.get(cur);
+            pts.push({ x: n.x, y: n.y });
+            const next = n.nb.find(k => k !== prev && !used.has(k));
+            prev = cur; cur = next;
+        }
+        return pts;
     };
+    // open curves first (nodes with a single neighbour), then closed loops
+    for (const [k, n] of nodes) if (!used.has(k) && n.nb.length === 1) {
+        const pts = walk(k); if (pts.length > 1) out.push(pts);
+    }
+    for (const [k] of nodes) if (!used.has(k)) {
+        const pts = walk(k); if (pts.length > 1) { pts.push(pts[0]); out.push(pts); }
+    }
+    return out.map((pts, i) => ({
+        from: pts[0], to: pts[pts.length - 1], points: pts, label: i === 0 ? label : '', color: color, width: 2, dash: dash || []
+    }));
 }
 
 // Helper function to format numbers

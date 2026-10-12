@@ -4370,201 +4370,178 @@ function renderLocusReflectionFootCard() {
             let curvePoints = [];
             let isLine = false;
             let isCircle = false;
+            let kLinePoints = null;
+            const specialDots = [];
+            // Parse the fixed line K typed as e.g. "x + y = 0" into A x + B y + C = 0
+            const parseFixedLine = (txt) => {
+                const f = parseLocusExpression(txt);
+                const C0 = f(0, 0), A0 = f(1, 0) - C0, B0 = f(0, 1) - C0;
+                const lin = (x, y) => A0*x + B0*y + C0;
+                if (![f(2, 3), f(-1, 4), f(5, -2)].every((v, i) => Math.abs(v - lin(...[[2, 3], [-1, 4], [5, -2]][i])) < 1e-9 * (1 + Math.abs(v)))) {
+                    throw new Error('Fixed line must be linear in x and y, e.g. "x + y = 0"');
+                }
+                if (!isFinite(A0 + B0 + C0)) throw new Error('Invalid fixed line equation');
+                if (Math.abs(A0) < 1e-12 && Math.abs(B0) < 1e-12) throw new Error('Fixed line needs an x or y term');
+                return {A: A0, B: B0, C: C0};
+            };
+            
+            // Helpers local to this card
+            const eps = 1e-9;
+            const n2 = a*a + b*b;
+            // "Ax + By + C = 0" text, skipping zero terms
+            const lineText = (A, B, C) => {
+                let t = '';
+                if (Math.abs(A) > eps) t += (A < 0 ? '-' : '') + (Math.abs(Math.abs(A) - 1) < eps ? '' : fmt(Math.abs(A))) + 'x';
+                if (Math.abs(B) > eps) t += (t ? (B < 0 ? ' - ' : ' + ') : (B < 0 ? '-' : '')) + (Math.abs(Math.abs(B) - 1) < eps ? '' : fmt(Math.abs(B))) + 'y';
+                if (Math.abs(C) > eps) t += (t ? (C < 0 ? ' - ' : ' + ') : (C < 0 ? '-' : '')) + fmt(Math.abs(C));
+                return (t || '0') + ' = 0';
+            };
+            // two far-apart points on the line Ax + By + C = 0
+            const lineSeg = (A, B, C) => Math.abs(B) > eps
+                ? [{x: -40, y: (-A*-40 - C)/B}, {x: 40, y: (-A*40 - C)/B}]
+                : [{x: -C/A, y: -40}, {x: -C/A, y: 40}];
             
             // CASE 1: Foot of perpendicular from P to line L is at fixed distance from origin
             if (type === 'footDistance') {
                 const d = validateNumber(dInp.value, 'd');
+                if (d < 0) throw new Error('Distance d cannot be negative');
                 
-                // Foot of perpendicular from P(x,y) to line L: ax + by + c = 0
-                // t = (ax + by + c)/(a² + b²)
-                // Foot: F = (x - a·t, y - b·t)
-                // Condition: |F| = d (distance from origin to foot is constant)
-                // (x - a·t)² + (y - b·t)² = d²
+                // The foot F lies on L. Let p = distance of O from L. Points of L at distance d from O
+                // exist only when d >= p: F = F0 ± s·(unit direction of L), s = √(d² - p²).
+                // P has foot F exactly when P lies on the line through F perpendicular to L.
+                const p = Math.abs(c) / norm;
+                const f0x = -a*c/n2, f0y = -b*c/n2;
+                const sq = d*d - p*p;
                 
                 steps = [
                     `📍 STEP 1: Understanding the problem`,
-                    `   • Fixed line L: ${fmt(a)}x + ${fmt(b)}y + ${fmt(c)} = 0`,
-                    `   • Moving point P(x, y)`,
-                    `   • Let F be the foot of perpendicular from P to L`,
-                    `   • Condition: Distance OF = ${fmt(d)} (constant)`,
+                    `   • Fixed line L: ${lineText(a, b, c)}`,
+                    `   • Moving point P(x, y); F is the foot of the perpendicular from P to L`,
+                    `   • Condition: OF = ${fmt(d)} (constant)`,
                     ``,
-                    `📍 STEP 2: Formula for foot of perpendicular`,
-                    `   • The foot F is given by:`,
-                    `   • t = (ax + by + c)/(a² + b²) = (${fmt(a)}x + ${fmt(b)}y + ${fmt(c)})/${fmt(norm)}²`,
-                    `   • F = (x - a·t, y - b·t)`,
-                    `   • F = (x - ${fmt(a)}·t, y - ${fmt(b)}·t)`,
+                    `📍 STEP 2: Where can the foot be?`,
+                    `   • F always lies on L, so OF can only take values ≥ p, the distance of O from L`,
+                    `   • p = |c|/√(a² + b²) = ${fmt(Math.abs(c))}/${fmt(norm)} = ${fmt(p)}`,
+                    `   • The foot of the perpendicular from O to L is F₀ = (${fmt(f0x)}, ${fmt(f0y)})`,
                     ``,
-                    `📍 STEP 3: Apply the distance condition`,
-                    `   • |F|² = (x - a·t)² + (y - b·t)² = ${fmt(d*d)}`,
-                    `   • Expand: (x² - 2a·t·x + a²t²) + (y² - 2b·t·y + b²t²) = ${fmt(d*d)}`,
-                    `   • x² + y² - 2t(ax + by) + (a² + b²)t² = ${fmt(d*d)}`,
-                    ``,
-                    `📍 STEP 4: Substitute t = (ax + by + c)/${fmt(norm)}²`,
-                    `   • Let S = ax + by + c`,
-                    `   • Then t = S/${fmt(norm)}²`,
-                    `   • ax + by = S - c`,
-                    `   • Substitute into the equation:`,
-                    `   • x² + y² - 2(S/${fmt(norm)}²)(S - c) + ${fmt(norm)}²·(S²/${fmt(norm)}⁴) = ${fmt(d*d)}`,
-                    `   • x² + y² - (2S(S - c))/${fmt(norm)}² + S²/${fmt(norm)}² = ${fmt(d*d)}`,
-                    ``,
-                    `📍 STEP 5: Simplify the expression`,
-                    `   • x² + y² - (2S² - 2cS)/${fmt(norm)}² + S²/${fmt(norm)}² = ${fmt(d*d)}`,
-                    `   • x² + y² - (S² - 2cS)/${fmt(norm)}² = ${fmt(d*d)}`,
-                    `   • x² + y² - (S² - 2cS)/${fmt(norm)}² = ${fmt(d*d)}`,
-                    ``,
-                    `📍 STEP 6: Multiply by ${fmt(norm)}²`,
-                    `   • ${fmt(norm)}²(x² + y²) - (ax + by + c)² + 2c(ax + by + c) = ${fmt(d*d*norm)}²`,
-                    ``,
-                    `📍 STEP 7: Expand and simplify`,
-                    `   • This is a quadratic equation in x and y`,
-                    `   • After simplification, it represents a CIRCLE`,
-                    `   • The locus is a circle (or a line in special cases)`
+                    `📍 STEP 3: Points of L at distance ${fmt(d)} from O`,
+                    `   • If F is a distance s from F₀ along L then OF² = p² + s²`,
+                    `   • s² = d² - p² = ${fmt(d*d)} - ${fmt(p*p)} = ${fmt(sq)}`
                 ];
                 
-                // Generate circle locus points
-                // For a specific example: if line is y = 0 (x-axis), foot is (x, 0), condition |foot| = d → x² = d²
-                // That gives two vertical lines x = ±d
-                // For line x = 0 (y-axis), foot is (0, y), condition |foot| = d → y² = d² → y = ±d (horizontal lines)
-                
-                if (Math.abs(b) < 1e-10 && Math.abs(a) > 1e-10) {
-                    // Line is vertical: x = -c/a
-                    const xConst = -c/a;
-                    // Foot from P(x,y) to vertical line is (xConst, y)
-                    // Condition: xConst² + y² = d²
-                    // y² = d² - xConst²
-                    const radiusSq = d*d - xConst*xConst;
-                    if (radiusSq > 0) {
-                        const radius = Math.sqrt(radiusSq);
-                        locusEquation = `y² = ${fmt(radiusSq)} → y = ±${fmt(radius)} (two horizontal lines)`;
-                        isLine = true;
-                        // Draw horizontal lines
-                        const minX = -8, maxX = 8;
-                        curvePoints.push({x: minX, y: radius}, {x: maxX, y: radius});
-                        curvePoints.push({x: minX, y: -radius}, {x: maxX, y: -radius});
-                    } else {
-                        locusEquation = `No real locus (y² = ${fmt(radiusSq)} is impossible)`;
-                    }
-                    steps.push(`   • For vertical line x = ${fmt(xConst)}, foot F = (${fmt(xConst)}, y)`);
-                    steps.push(`   • Condition: ${fmt(xConst)}² + y² = ${fmt(d*d)} → y² = ${fmt(d*d - xConst*xConst)}`);
-                } else if (Math.abs(a) < 1e-10 && Math.abs(b) > 1e-10) {
-                    // Line is horizontal: y = -c/b
-                    const yConst = -c/b;
-                    // Foot from P(x,y) to horizontal line is (x, yConst)
-                    // Condition: x² + yConst² = d²
-                    // x² = d² - yConst²
-                    const radiusSq = d*d - yConst*yConst;
-                    if (radiusSq > 0) {
-                        const radius = Math.sqrt(radiusSq);
-                        locusEquation = `x² = ${fmt(radiusSq)} → x = ±${fmt(radius)} (two vertical lines)`;
-                        isLine = true;
-                        // Draw vertical lines
-                        const minY = -8, maxY = 8;
-                        curvePoints.push({x: radius, y: minY}, {x: radius, y: maxY});
-                        curvePoints.push({x: -radius, y: minY}, {x: -radius, y: maxY});
-                    } else {
-                        locusEquation = `No real locus (x² = ${fmt(radiusSq)} is impossible)`;
-                    }
-                    steps.push(`   • For horizontal line y = ${fmt(yConst)}, foot F = (x, ${fmt(yConst)})`);
-                    steps.push(`   • Condition: x² + ${fmt(yConst)}² = ${fmt(d*d)} → x² = ${fmt(d*d - yConst*yConst)}`);
+                if (sq < -eps) {
+                    locusEquation = `\\text{No real locus } (d < ${fmt(p)})`;
+                    steps.push(``, `📍 STEP 4: Conclusion`,
+                        `   • s² < 0, so no point of L is at distance ${fmt(d)} from O`,
+                        `   • The locus is empty (d must be at least ${fmt(p)})`);
                 } else {
-                    // General case - the locus is a circle
-                    // Derive center and radius
-                    const denom = a*a + b*b;
-                    // After simplification, the equation becomes:
-                    // (x - centerX)² + (y - centerY)² = R²
-                    // For line ax + by + c = 0, the locus of points whose foot is at distance d from origin is a circle
-                    // Center is at (-a*c/denom, -b*c/denom) and radius = d
-                    const centerX = -a * c / denom;
-                    const centerY = -b * c / denom;
-                    const radius = d;
-                    
-                    locusEquation = `(x - ${fmt(centerX)})² + (y - ${fmt(centerY)})² = ${fmt(radius)}²`;
-                    isCircle = true;
-                    
-                    // Generate circle points
-                    for (let t = 0; t <= 2 * Math.PI; t += 0.05) {
-                        curvePoints.push({
-                            x: centerX + radius * Math.cos(t),
-                            y: centerY + radius * Math.sin(t)
-                        });
+                    const w = Math.sqrt(Math.max(sq, 0)) * norm;  // -bx + ay = ±w
+                    isLine = true;
+                    const dirx = a / norm, diry = b / norm;     // direction of the perpendicular lines
+                    const signs = w < eps ? [0] : [1, -1];
+                    for (const sg of signs) {
+                        const px = sg * w * (-b) / n2, py = sg * w * a / n2;
+                        curvePoints.push({x: px - 40*dirx, y: py - 40*diry}, {x: px + 40*dirx, y: py + 40*diry});
+                        if (sg !== signs[signs.length - 1]) curvePoints.push({x: NaN, y: NaN});
                     }
-                    
-                    steps.push(`   • After algebraic simplification, we get a CIRCLE:`);
-                    steps.push(`   • Center: (${fmt(centerX)}, ${fmt(centerY)})`);
-                    steps.push(`   • Radius: ${fmt(radius)}`);
+                    steps.push(``,
+                        `📍 STEP 4: Lines of points having those feet`,
+                        `   • The coordinate of a point along L is (-b·x + a·y)/√(a² + b²)`,
+                        `   • The foot has coordinate ±s, and P has the same coordinate as its foot`,
+                        `   • So  -b·x + a·y = ±s·√(a² + b²) = ±${fmt(w)}`,
+                        ``,
+                        `📍 STEP 5: Conclusion`);
+                    if (w < eps) {
+                        locusEquation = `${lineText(-b, a, 0)} \;(\\text{one line: } d = p)`;
+                        steps.push(`   • d = p, so only F₀ qualifies: the locus is the single line ${lineText(-b, a, 0)}, perpendicular to L through F₀`);
+                    } else {
+                        locusEquation = `${lineText(-b, a, -w).replace(' = 0', '')} = 0 \;\\text{ or }\; ${lineText(-b, a, w).replace(' = 0', '')} = 0`;
+                        steps.push(`   • The locus is TWO lines perpendicular to L: ${lineText(-b, a, -w)} and ${lineText(-b, a, w)}`);
+                    }
                 }
                 
             } 
             // CASE 2: Reflection of P across line L lies on a fixed line
             else if (type === 'reflectionPoint') {
-                const fixedLineEq = fixedLineInp.value;
-                // Parse fixed line: assume form "x + y = 0" or "x - y = 0" etc.
-                const fixedLineParts = fixedLineEq.split('=');
-                if (fixedLineParts.length !== 2) {
-                    throw new Error('Fixed line should be in form "ax + by = c"');
-                }
+                const K = parseFixedLine(fixedLineInp.value);
+                const dot = K.A*a + K.B*b;
+                const A2 = K.A*n2 - 2*dot*a, B2 = K.B*n2 - 2*dot*b, C2 = K.C*n2 - 2*dot*c;
                 
                 steps = [
                     `📍 STEP 1: Understanding the problem`,
-                    `   • Fixed line L: ${fmt(a)}x + ${fmt(b)}y + ${fmt(c)} = 0`,
-                    `   • Moving point P(x, y)`,
-                    `   • Let Q be the reflection of P across L`,
-                    `   • Condition: Q lies on fixed line: ${fixedLineEq}`,
+                    `   • Fixed line L: ${lineText(a, b, c)}`,
+                    `   • Moving point P(x, y); Q is the reflection of P across L`,
+                    `   • Condition: Q lies on the fixed line K: ${lineText(K.A, K.B, K.C)}`,
                     ``,
                     `📍 STEP 2: Formula for reflection of a point across a line`,
                     `   • t = (ax + by + c)/(a² + b²)`,
-                    `   • Reflection Q = (x - 2a·t, y - 2b·t)`,
+                    `   • Q = (x - 2a·t, y - 2b·t)`,
                     ``,
-                    `📍 STEP 3: Apply the condition that Q lies on the fixed line`,
-                    `   • Substitute Q into the fixed line equation`,
-                    `   • This gives a linear equation in x and y`,
-                    `   • The locus is a STRAIGHT LINE`,
+                    `📍 STEP 3: Substitute Q into K`,
+                    `   • ${fmt(K.A)}(x - 2a·t) + ${fmt(K.B)}(y - 2b·t) + ${fmt(K.C)} = 0`,
+                    `   • Multiply by a² + b² = ${fmt(n2)} and collect terms:`,
+                    `   • (${fmt(K.A)}·${fmt(n2)} - 2·${fmt(dot)}·${fmt(a)})x + (${fmt(K.B)}·${fmt(n2)} - 2·${fmt(dot)}·${fmt(b)})y + (${fmt(K.C)}·${fmt(n2)} - 2·${fmt(dot)}·${fmt(c)}) = 0`,
                     ``,
                     `📍 STEP 4: Geometric interpretation`,
-                    `   • The reflection condition creates a line that is the mirror image of the fixed line`,
-                    `   • The locus is the line L' such that reflecting L' across L gives the fixed line`,
-                    `   • In other words, L' is the reflection of the fixed line across L`
+                    `   • P is on the locus exactly when its mirror image Q is on K`,
+                    `   • So the locus is the mirror image (reflection) of K in L`,
+                    `   • Locus: ${lineText(A2, B2, C2)}`
                 ];
                 
-                locusEquation = `Line: (Reflection of the fixed line across L)`;
+                locusEquation = `${lineText(A2, B2, C2)} \;\\text{(reflection of } K \\text{ in } L\\text{)}`;
                 isLine = true;
-                
-                // For demonstration, draw the line
-                const minX = -8, maxX = 8;
-                curvePoints.push({x: minX, y: 0}, {x: maxX, y: 0});
-                
+                curvePoints.push(...lineSeg(A2, B2, C2));
+                kLinePoints = lineSeg(K.A, K.B, K.C);
             } 
             // CASE 3: Midpoint of P and its reflection lies on a fixed line
             else {
+                const K = parseFixedLine(fixedLineInp.value);
+                const det = a*K.B - b*K.A;
+                
                 steps = [
                     `📍 STEP 1: Understanding the problem`,
-                    `   • Fixed line L: ${fmt(a)}x + ${fmt(b)}y + ${fmt(c)} = 0`,
-                    `   • Moving point P(x, y)`,
-                    `   • Let Q be the reflection of P across L`,
-                    `   • M = midpoint of P and Q`,
-                    `   • Condition: M lies on a fixed line`,
+                    `   • Fixed line L: ${lineText(a, b, c)}`,
+                    `   • Moving point P(x, y); Q is the reflection of P across L; M is the midpoint of PQ`,
+                    `   • Condition: M lies on the fixed line K: ${lineText(K.A, K.B, K.C)}`,
                     ``,
-                    `📍 STEP 2: Property of midpoint`,
-                    `   • For reflection, the midpoint M is exactly the foot of the perpendicular from P to L`,
-                    `   • M = foot of perpendicular F = (x - a·t, y - b·t)`,
-                    `   • where t = (ax + by + c)/(a² + b²)`,
+                    `📍 STEP 2: Property of the midpoint`,
+                    `   • The midpoint of P and its reflection Q is the foot F of the perpendicular from P to L`,
+                    `   • So M = F always lies on L`,
                     ``,
                     `📍 STEP 3: Apply the condition`,
-                    `   • Since M lies on the fixed line, we get an equation in x and y`,
-                    `   • This simplifies to a linear equation`,
-                    `   • The locus is a STRAIGHT LINE parallel to L`,
-                    ``,
-                    `📍 STEP 4: Geometric interpretation`,
-                    `   • The midpoint of P and its reflection is always on L itself!`,
-                    `   • Wait, that's not right. Actually, the midpoint is the foot, which lies on L.`,
-                    `   • So if the fixed line is L itself, then the locus is all points? Let's think...`
+                    `   • M lies on both L and K, so M must be the intersection point of L and K`
                 ];
+                kLinePoints = lineSeg(K.A, K.B, K.C);
                 
-                locusEquation = `Line parallel to L at a specific distance`;
-                isLine = true;
-                
-                const minX = -8, maxX = 8;
-                curvePoints.push({x: minX, y: 0}, {x: maxX, y: 0});
+                if (Math.abs(det) < eps * Math.max(1, n2)) {
+                    // K parallel to L (or the same line)
+                    const same = Math.abs(a*K.C - K.A*c) < 1e-9 * Math.max(1, Math.abs(a*K.C)) && Math.abs(b*K.C - K.B*c) < 1e-9 * Math.max(1, Math.abs(b*K.C));
+                    if (same) {
+                        locusEquation = `\\text{K coincides with L: every point P qualifies}`;
+                        steps.push(``, `📍 STEP 4: Conclusion`, `   • K is the same line as L, so M is always on K: the locus is the whole plane`);
+                    } else {
+                        locusEquation = `\\text{No real locus (K is parallel to L)}`;
+                        steps.push(``, `📍 STEP 4: Conclusion`, `   • K is parallel to L and different, so L and K never meet`, `   • No point P satisfies the condition: the locus is empty`);
+                    }
+                } else {
+                    const ix = (b*K.C - K.B*c) / det;
+                    const iy = (K.A*c - a*K.C) / det;
+                    const LA = -b, LB = a, LC = b*ix - a*iy;
+                    steps.push(
+                        `   • Intersection I of L and K: I = (${fmt(ix)}, ${fmt(iy)})`,
+                        ``,
+                        `📍 STEP 4: Which P have foot I?`,
+                        `   • The foot of P on L is I exactly when P lies on the line through I perpendicular to L`,
+                        `   • That line has normal direction (-b, a), so -b·x + a·y = -b·${fmt(ix)} + a·${fmt(iy)}`,
+                        ``,
+                        `📍 STEP 5: Conclusion`,
+                        `   • The locus is the line through I perpendicular to L: ${lineText(LA, LB, LC)}`
+                    );
+                    locusEquation = `${lineText(LA, LB, LC)} \;\\text{(perpendicular to } L \\text{ through } L\\cap K\\text{)}`;
+                    isLine = true;
+                    curvePoints.push(...lineSeg(LA, LB, LC));
+                    specialDots.push({x: ix, y: iy});
+                }
             }
             
             // Draw the fixed line L
@@ -4598,6 +4575,30 @@ function renderLocusReflectionFootCard() {
                 }
             ];
             
+            if (kLinePoints) {
+                datasets.push({
+                    label: 'Fixed Line K',
+                    data: kLinePoints,
+                    backgroundColor: 'transparent',
+                    borderColor: '#2980b9',
+                    borderWidth: 2,
+                    borderDash: [6, 4],
+                    pointRadius: 0,
+                    showLine: true,
+                    fill: false
+                });
+            }
+            if (specialDots.length) {
+                datasets.push({
+                    label: 'L ∩ K',
+                    data: specialDots,
+                    backgroundColor: '#8e44ad',
+                    pointRadius: 7,
+                    pointStyle: 'circle',
+                    showLine: false
+                });
+            }
+            
             // Add locus curve
             if (curvePoints.length > 0) {
                 if (isLine) {
@@ -4628,7 +4629,7 @@ function renderLocusReflectionFootCard() {
             // Add test point if provided
             if (testX !== null && testY !== null) {
                 // Calculate foot and reflection for verification
-                const t = (a*testX + b*testY + c) / norm;
+                const t = (a*testX + b*testY + c) / (a*a + b*b);
                 const footX = testX - a * t;
                 const footY = testY - b * t;
                 const reflX = testX - 2 * a * t;
@@ -4693,6 +4694,7 @@ function renderLocusReflectionFootCard() {
             attachStepsToggle();
             
         } catch (e) {
+            resultDiv.innerHTML = '';
             showError(e.message);
         }
     }
@@ -6032,7 +6034,7 @@ function renderLocusMidpointSegmentCard() {
                     
                     `📍 STEP 8: Interpretation`,
                     `   • This is a RECTANGULAR HYPERBOLA`,
-                    `   • As x or y approaches 0, the other approaches ${fmt(k/2)}?`,
+                    `   • Its asymptotes are x = ${fmt(1/(2*k))} and y = ${fmt(1/(2*k))}`,
                     `   • The curve is symmetric about the line y = x`
                 ];
                 
@@ -6651,7 +6653,7 @@ function renderLocusSectionFormulaCard() {
                 } else {
                     const slopeAB = (by - ay) / (bx - ax);
                     const intercept = ay - slopeAB * ax;
-                    locusEquation = `y = ${fmt(slopeAB)}x${locusTerm(intercept, '')} \\text{ (line AB)}`;
+                    locusEquation = (Math.abs(slopeAB) < 1e-10 ? `y = ${fmt(intercept)}` : `y = ${fmt(slopeAB)}x${locusTerm(intercept, '')}`) + ` \\text{ (line AB)}`;
                     linePoints = [
                         {x: minX, y: slopeAB * minX + intercept},
                         {x: maxX, y: slopeAB * maxX + intercept}
