@@ -240,7 +240,7 @@ function drawGraph(pointsArray, specialPoints = [], lineSegments = [], options =
         // Create a hash of current drawing parameters to check if we need to redraw
         const currentParams = {
             pointsHash: JSON.stringify(allPoints.map(p => `${p.x},${p.y}`).sort()),
-            segmentsHash: JSON.stringify(lineSegments.map(s => `${s.from.x},${s.from.y},${s.to.x},${s.to.y},${s.color}`).sort()),
+            segmentsHash: JSON.stringify(lineSegments.map(s => `${s.from.x},${s.from.y},${s.to.x},${s.to.y},${s.color}${s.points ? ',' + s.points.length + ',' + s.points.reduce((t, q) => t + q.x * 7 + q.y * 13, 0) : ''}`).sort()),
             specialCount: specialPoints.length,
             boundsHash: `${bounds.minX},${bounds.maxX},${bounds.minY},${bounds.maxY}`
         };
@@ -281,7 +281,7 @@ function drawGraph(pointsArray, specialPoints = [], lineSegments = [], options =
                 const seg = lineSegments[i];
                 datasets.push({
                     label: seg.label || '',
-                    data: [seg.from, seg.to],
+                    data: seg.points || [seg.from, seg.to],
                     backgroundColor: 'transparent',
                     borderColor: seg.color || '#64748B',
                     borderWidth: seg.width || 2,
@@ -327,6 +327,7 @@ const chartOptions = {
             display: true, 
             position: 'top',
             labels: { 
+                filter: (item) => !!item.text,
                 font: { size: 11 },
                 boxWidth: window.innerWidth < 768 ? 20 : 12,
                 padding: window.innerWidth < 768 ? 15 : 10

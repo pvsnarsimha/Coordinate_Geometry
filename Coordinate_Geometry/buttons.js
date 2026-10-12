@@ -379,6 +379,14 @@ rectangleSquareBtn.addEventListener('click', () => {
 // ADD YOUR 4 NEW EVENT LISTENERS HERE
 
 
+// Event listener for the Angle Bisectors & Family of Lines tab (the tab had no click handler)
+const tabAngleBisectors = document.getElementById('tabAngleBisectors');
+tabAngleBisectors.addEventListener('click', () => {
+    destroyGraph();
+    switchTab('tabAngleBisectors');
+    renderAngleBisectorsEquationCard();
+});
+
 // Event listeners for Standard Points of Triangle
 const tabStandardPoints = document.getElementById('tabStandardPoints');
 tabStandardPoints.addEventListener('click', () => {
