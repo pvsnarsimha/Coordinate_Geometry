@@ -609,6 +609,10 @@ BINDINGS.push(
   { scene:'bisector', ids:['obA1', 'obB1', 'obC1', 'obA2', 'obB2', 'obC2'], get:v => Object.assign(lines6(v), { mode:'obtuse' }) },
   { scene:'bisector', ids:['cpA1', 'cpB1', 'cpC1', 'cpA2', 'cpB2', 'cpC2', 'cpX', 'cpY'], get:v => Object.assign(lines6(v), { mode:'point', px:v[6], py:v[7] }) }
 );
+// Extra scene modules (StudioMore*.js) register their scenes, bindings, extras and hooks here.
+const MORE = { extras: {}, hooks: {} };
+const ENV = { C, FONT, EPS, pick, ease, seg, lerp, rnd, fmt, fin, eqStr, slopeEq, niceEq, fit, intersect, foot, circleD, sectionPoint, locusLine, conicRoots, conicCurves, bisectors, quadrant, snap: v => snapV(v), lv: () => lvNow(), imgOf };
+(window.__studioParts || []).forEach((fn, i) => { try { fn(ENV, scenes, BINDINGS, MORE); } catch (err) { if (window.console) console.error('Studio part ' + i + ' failed', err); } });
 const SC = {}; scenes.forEach(s => { SC[s.id] = s; });
 
 const TAB_INFO = {
@@ -630,16 +634,20 @@ function readRadio(name) { const el = cardEl() && cardEl().querySelector('input[
 // Returns { binding, params, title } for the card on screen, { binding, params:null } if its inputs are not numbers yet, or null.
 function detectCard() {
   const root = cardEl(); if (!root) return null;
+  const tx = id => { const e = root.querySelector('#' + id); return e ? e.value : ''; };
   for (const bnd of BINDINGS) {
-    const els = bnd.ids.map(id => root.querySelector('#' + id));
-    if (els.some(e => !e)) continue;
-    const title = (root.querySelector('h2') || {}).textContent || '';
-    const v = els.map(e => parseFloat(e.value));
-    if (!v.every(Number.isFinite)) return { binding: bnd, params: null, title: title.trim() };
-    let p = null; try { p = bnd.get(v, readRadio); } catch (e) { p = null; }
-    const sc = SC[bnd.scene];
-    if (p && sc.valid(p) && Object.entries(p).every(([k, x]) => k === 'mode' || Number.isFinite(x))) return { binding: bnd, params: p, title: title.trim() };
-    return { binding: bnd, params: null, title: title.trim() };
+    if (bnd.present && !bnd.present(root)) continue;
+    const ids = bnd.ids || [], tids = bnd.text || [];
+    if (!bnd.present && !ids.length) continue;
+    const els = ids.map(id => root.querySelector('#' + id));
+    if (els.some(e => !e) || tids.some(id => !root.querySelector('#' + id))) continue;
+    const title = ((root.querySelector('h2') || {}).textContent || '').trim(), v = els.map(e => parseFloat(e.value));
+    if (!v.every(Number.isFinite)) return { binding: bnd, scene: bnd.scene || 'plot', params: null, title };
+    let p = null, sceneId = bnd.scene;
+    try { p = bnd.read ? bnd.read(root) : bnd.get(v, readRadio, tx); if (p && bnd.sceneOf) sceneId = bnd.sceneOf(p, readRadio, tx); } catch (e) { p = null; }
+    const sc = SC[sceneId];
+    if (p && sc && sc.valid(p) && Object.entries(p).every(([k, x]) => k === 'mode' || Number.isFinite(x))) return { binding: bnd, scene: sceneId, params: p, title };
+    return { binding: bnd, scene: sceneId || 'plot', params: null, title };
   }
   return null;
 }
@@ -767,7 +775,8 @@ const EXTRAS = {
       { id: '3d-floor', text: T2('Make B lie flat on the floor (the xy-plane).'), hint: T2('The floor is where the height is 0.', 'z = 0 for B.'), check: P => Math.abs(P.bz) < EPS && (Math.abs(P.bx) + Math.abs(P.by) > EPS) }
     ] }
 };
-const HOOKS = {
+Object.assign(EXTRAS, MORE.extras);
+const HOOKS = Object.assign({}, MORE.hooks, {
   plot: 'Treasure map: "3 steps east, 2 steps north" is exactly how we plot a point.',
   distance: 'How far is the park from school? The straight shortcut between two places is their distance.',
   section: 'Where do we meet if you walk 2 parts and I walk 1 part of the way? That is the section formula.',
@@ -786,7 +795,7 @@ const HOOKS = {
   conic: 'A torch beam across a satellite dish or an oval running track: how many times does it cross?',
   threed: 'Where is a drone? Along, across and up: three numbers tell you.',
   angle3d: 'Two aeroplane routes in the sky: how wide is the angle between them?'
-};
+});
 scenes.forEach(s => Object.assign(s, { marks: [0], ranges: {}, challenges: [], hook: HOOKS[s.id] || '' }, EXTRAS[s.id] || {}));
 const TOTAL_CHALLENGES = scenes.reduce((n, s) => n + s.challenges.length, 0);
 
@@ -931,7 +940,7 @@ function setBounds() { const c = S.cur; g.setBounds(S.boundsFixed || fit(c.sc.fi
 
 function select(id, linked) {
   const sc = SC[id]; if (!sc) return; S.kb = null;
-  const L = S.linked, useLinked = !!(linked && L && L.params && L.binding.scene === id);
+  const L = S.linked, useLinked = !!(linked && L && L.params && L.scene === id);
   const P = useLinked ? L.params : (S.sandbox[id] || (S.sandbox[id] = defaultsOf(sc)));
   S.cur = { sc, P, linked: useLinked }; S.boundsFixed = null; S.hintOn = false;
   el.cv.setAttribute('aria-label', 'Animation: ' + sc.title);
@@ -942,10 +951,10 @@ function select(id, linked) {
 function refreshChips() {
   el.chips.textContent = '';
   const list = tabSceneList(S.tabId), L = S.linked, ids = [];
-  if (L && L.params) { ids.push([L.binding.scene, true]); ids.push([L.binding.scene, false]); }
-  list.forEach(s => { if (!(L && L.params && L.binding.scene === s.id)) ids.push([s.id, false]); });
+  if (L && L.params) { ids.push([L.scene, true]); ids.push([L.scene, false]); }
+  list.forEach(s => { if (!(L && L.params && L.scene === s.id)) ids.push([s.id, false]); });
   ids.forEach(([id, mine], i) => {
-    const play = !mine && L && L.params && L.binding.scene === id;
+    const play = !mine && L && L.params && L.scene === id;
     const b = $e('button', 'cs-chip' + (mine ? ' mine' : ''), (SC[id].chip || SC[id].title) + (mine ? ' · your card' : play ? ' · free play' : '')); b.type = 'button';
     b.setAttribute('aria-pressed', String(S.cur && S.cur.sc.id === id && S.cur.linked === mine));
     b.addEventListener('click', () => { S.picked = true; select(id, mine); });
@@ -1111,15 +1120,15 @@ function openStudio(open) {
 }
 
 // ---- following the app ----
-function signature(found, tabId) { return tabId + '|' + (found ? found.binding.ids.join(',') + (found.params ? 'ok' : 'bad') : 'none'); }
+function signature(found, tabId) { return tabId + '|' + (found ? (found.binding.sig || (found.binding.ids || []).join(',')) + ':' + found.scene + (found.params ? 'ok' : 'bad') : 'none'); }
 function pickDefault() { const list = tabSceneList(S.tabId); select((list[0] || scenes[0]).id, false); }
 function syncLinked(forceReplay) {
   const found = detectCard(), tabId = activeTabId(), sig = signature(found, tabId);
   const btn = document.getElementById('cgStudioBtn'); if (btn) btn.classList.toggle('cs-linked', !!(found && found.params));
   S.tabId = tabId;
   if (sig !== S.sig) {
-    S.sig = sig; S.linked = found && found.params ? { binding: found.binding, params: Object.assign({}, found.params), title: found.title } : null; S.picked = false;
-    el.chips.textContent = ''; if (S.linked) select(S.linked.binding.scene, true); else pickDefault();
+    S.sig = sig; S.linked = found && found.params ? { binding: found.binding, scene: found.scene, params: Object.assign({}, found.params), title: found.title } : null; S.picked = false;
+    el.chips.textContent = ''; if (S.linked) select(S.linked.scene, true); else pickDefault();
     return;
   }
   if (!S.linked || !S.cur || !S.cur.linked || S.drag) return;
