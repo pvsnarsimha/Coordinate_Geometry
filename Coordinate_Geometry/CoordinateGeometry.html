@@ -1317,6 +1317,214 @@ locusReflectionFootBtn.addEventListener('click', () => {
 
 
 // ========= NEW: Equation of Locus Card (with detailed steps) =========
+// Helper: "(x - 3)", "x" or "(x + 3)" for a shift v of variable `name` (avoids "x - -3" output)
+function locusShift(name, v) {
+    const r = Math.round(v * 10000) / 10000;
+    if (r === 0) return name;
+    return r > 0 ? `(${name} - ${r})` : `(${name} + ${-r})`;
+}
+// Helper: signed polynomial term, e.g. " + 2x", " - 3.5y", "" when ~0
+function locusTerm(c, sym) {
+    const r = Math.round(c * 10000) / 10000;
+    if (r === 0) return '';
+    const mag = Math.abs(r);
+    const body = (sym && mag === 1) ? sym : `${mag}${sym || ''}`;
+    return (r < 0 ? ' - ' : ' + ') + body;
+}
+// Safe parser for custom f(x,y) = 0 / lhs = rhs input. Returns function (x,y) => number.
+function parseLocusExpression(text) {
+    let src = String(text).replace(/\*\*/g, '^').replace(/[−–]/g, '-').replace(/×/g, '*').replace(/²/g, '^2').replace(/³/g, '^3').toLowerCase();
+    const eqParts = src.split('=');
+    if (eqParts.length > 2) throw new Error('Use at most one "=" in the equation');
+    if (eqParts.length === 2) {
+        if (!eqParts[0].trim() || !eqParts[1].trim()) throw new Error('Both sides of "=" must be non-empty');
+        src = `(${eqParts[0]})-(${eqParts[1]})`;
+    }
+    const tokens = [];
+    const re = /\s*(\d+\.?\d*(?:e[+-]?\d+)?|\.\d+|[a-z]+|[-+*/^(),])/y;
+    let pos = 0;
+    while (pos < src.length) {
+        re.lastIndex = pos;
+        const m = re.exec(src);
+        if (!m) {
+            if (/^\s*$/.test(src.slice(pos))) break;
+            throw new Error(`Cannot understand "${src.slice(pos).trim().charAt(0)}" in the equation`);
+        }
+        pos = re.lastIndex;
+        tokens.push(m[1]);
+    }
+    if (!tokens.length) throw new Error('Equation cannot be empty');
+    const funcs = {sqrt: Math.sqrt, abs: Math.abs, sin: Math.sin, cos: Math.cos, tan: Math.tan, exp: Math.exp, ln: Math.log, log: Math.log10};
+    let i = 0;
+    const isNum = t => t !== undefined && /^[\d.]/.test(t);
+    const isName = t => t !== undefined && /^[a-z]+$/.test(t);
+    function parseExpr() {
+        let l = parseTerm();
+        while (tokens[i] === '+' || tokens[i] === '-') {
+            const op = tokens[i++], r = parseTerm(), a = l;
+            l = op === '+' ? (x, y) => a(x, y) + r(x, y) : (x, y) => a(x, y) - r(x, y);
+        }
+        return l;
+    }
+    function startsFactor(t) { return isNum(t) || isName(t) || t === '('; }
+    function parseTerm() {
+        let l = parseUnary();
+        for (;;) {
+            const t = tokens[i];
+            if (t === '*' || t === '/') {
+                i++;
+                const r = parseUnary(), a = l;
+                l = t === '*' ? (x, y) => a(x, y) * r(x, y) : (x, y) => a(x, y) / r(x, y);
+            } else if (startsFactor(t)) { // implicit multiplication: 2x, xy, 3(x+1)
+                const r = parseUnary(), a = l;
+                l = (x, y) => a(x, y) * r(x, y);
+            } else break;
+        }
+        return l;
+    }
+    function parseUnary() {
+        if (tokens[i] === '-') { i++; const a = parseUnary(); return (x, y) => -a(x, y); }
+        if (tokens[i] === '+') { i++; return parseUnary(); }
+        return parsePow();
+    }
+    function parsePow() {
+        const base = parseAtom();
+        if (tokens[i] === '^') {
+            i++;
+            const e = parseUnary();
+            return (x, y) => Math.pow(base(x, y), e(x, y));
+        }
+        return base;
+    }
+    function parseAtom() {
+        const t = tokens[i++];
+        if (t === undefined) throw new Error('Equation ended unexpectedly');
+        if (isNum(t)) { const v = parseFloat(t); if (!isFinite(v)) throw new Error('Bad number in equation'); return () => v; }
+        if (t === '(') {
+            const e = parseExpr();
+            if (tokens[i++] !== ')') throw new Error('Missing closing parenthesis');
+            return e;
+        }
+        if (t === 'x') return (x) => x;
+        if (t === 'y') return (x, y) => y;
+        if (t === 'pi') return () => Math.PI;
+        if (t === 'e') return () => Math.E;
+        if (funcs[t]) {
+            if (tokens[i++] !== '(') throw new Error(`${t} needs parentheses, e.g. ${t}(x)`);
+            const e = parseExpr();
+            if (tokens[i++] !== ')') throw new Error('Missing closing parenthesis');
+            const f = funcs[t];
+            return (x, y) => f(e(x, y));
+        }
+        throw new Error(`Unknown symbol "${t}" (use only x, y, numbers, + - * / ^ and functions like sqrt, abs, sin, cos)`);
+    }
+    const fn = parseExpr();
+    if (i < tokens.length) throw new Error(`Unexpected "${tokens[i]}" in the equation`);
+    return fn;
+}
+// Marching squares: returns point list with NaN gaps between segments for f(x,y)=0 on [-R,R]^2
+function sampleImplicitCurve(fn, R, N) {
+    const pts = [], h = 2 * R / N;
+    const vals = [];
+    for (let j = 0; j <= N; j++) {
+        const row = [];
+        for (let i = 0; i <= N; i++) { const v = fn(-R + i * h, -R + j * h); row.push(isFinite(v) ? v : NaN); }
+        vals.push(row);
+    }
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+        const x0 = -R + i * h, y0 = -R + j * h;
+        const c = [[x0, y0, vals[j][i]], [x0 + h, y0, vals[j][i + 1]], [x0 + h, y0 + h, vals[j + 1][i + 1]], [x0, y0 + h, vals[j + 1][i]]];
+        if (c.some(p => isNaN(p[2]))) continue;
+        const cr = [];
+        for (let e = 0; e < 4; e++) {
+            const p = c[e], q = c[(e + 1) % 4];
+            if ((p[2] < 0) !== (q[2] < 0) && !(p[2] === 0 && q[2] === 0)) {
+                const t = p[2] / (p[2] - q[2]);
+                cr.push({x: p[0] + t * (q[0] - p[0]), y: p[1] + t * (q[1] - p[1])});
+            }
+        }
+        for (let k = 0; k + 1 < cr.length; k += 2) { pts.push(cr[k], cr[k + 1], {x: NaN, y: NaN}); }
+    }
+    return pts;
+}
+
+// Builds equation text/steps/curve for an ellipse or hyperbola from its foci, a and b
+function locusConicInfo(kind, f1x, f1y, f2x, f2y, a, b, h, k) {
+    const isEll = kind === 'ellipse';
+    const dx = f2x - f1x, dy = f2y - f1y;
+    const dist = Math.hypot(dx, dy);
+    const theta = dist < 1e-10 ? 0 : Math.atan2(dy, dx);
+    const cs = Math.cos(theta), sn = Math.sin(theta);
+    const horizontal = Math.abs(dy) < 1e-9 * Math.max(1, dist) || dist < 1e-10;
+    const vertical = Math.abs(dx) < 1e-9 * Math.max(1, dist) && dist >= 1e-10;
+    const sq = v => `${v}^2`;
+    const X = locusShift('x', h), Y = locusShift('y', k);
+    const a2 = fmt(a*a), b2 = fmt(b*b);
+    const sign = isEll ? '+' : '-';
+    let tex, orientSteps, eqSteps;
+    if (horizontal || vertical) {
+        // axis-parallel: standard form
+        let tx, ty, ux, uy;
+        if (horizontal) { tx = a2; ty = b2; } else { tx = b2; ty = a2; }
+        if (isEll) {
+            tex = `\\frac{${sq(X)}}{${tx}} + \\frac{${sq(Y)}}{${ty}} = 1`;
+        } else if (horizontal) {
+            tex = `\\frac{${sq(X)}}{${a2}} - \\frac{${sq(Y)}}{${b2}} = 1`;
+        } else {
+            tex = `\\frac{${sq(Y)}}{${a2}} - \\frac{${sq(X)}}{${b2}} = 1`;
+        }
+        const plain = isEll
+            ? `${X}²/${tx} + ${Y}²/${ty} = 1`
+            : (horizontal ? `${X}²/${a2} - ${Y}²/${b2} = 1` : `${Y}²/${a2} - ${X}²/${b2} = 1`);
+        orientSteps = [
+            `   • The foci lie on a ${horizontal ? 'horizontal' : 'vertical'} line, so the major/transverse axis is ${horizontal ? 'horizontal' : 'vertical'}`
+        ];
+        eqSteps = [
+            `   • ${isEll ? 'x²/a² + y²/b² = 1' : (horizontal ? 'x²/a² - y²/b² = 1' : 'y²/a² - x²/b² = 1')} shifted to the centre (${fmt(h)}, ${fmt(k)})`,
+            `   • ${plain}`
+        ];
+        if (isEll && !horizontal) eqSteps.splice(0, 0, `   • (the longer semi-axis a is vertical here)`);
+    } else {
+        // general position: rotate by theta
+        const P = isEll ? b*b*cs*cs + a*a*sn*sn : b*b*cs*cs - a*a*sn*sn;
+        const Q = isEll ? 2*cs*sn*(b*b - a*a) : 2*cs*sn*(b*b + a*a);
+        const R = isEll ? b*b*sn*sn + a*a*cs*cs : b*b*sn*sn - a*a*cs*cs;
+        const D = -2*P*h - Q*k, E = -2*R*k - Q*h;
+        const F = P*h*h + Q*h*k + R*k*k - a*a*b*b;
+        const poly = `${fmt(P)}x^2${locusTerm(Q, 'xy')}${locusTerm(R, 'y^2')}${locusTerm(D, 'x')}${locusTerm(E, 'y')}${locusTerm(F, '')} = 0`;
+        tex = poly;
+        orientSteps = [
+            `   • The foci line is tilted by θ = ${fmt(theta * 180 / Math.PI)}° from the x-axis`,
+            `   • Use u = (x - ${fmt(h)})cosθ + (y - ${fmt(k)})sinθ along the axis and v = -(x - ${fmt(h)})sinθ + (y - ${fmt(k)})cosθ across it`
+        ];
+        eqSteps = [
+            `   • In rotated coordinates: u²/${a2} ${sign} v²/${b2} = 1`,
+            `   • Expanding with cosθ = ${fmt(cs)}, sinθ = ${fmt(sn)}:`,
+            `   • ${poly.replace(/\^2/g, '²')}`
+        ];
+    }
+    // curve points (rotated by theta)
+    const curves = [];
+    const mk = (pts, label) => ({
+        label, data: pts, backgroundColor: 'transparent', borderColor: '#2c3e50',
+        borderWidth: 3, pointRadius: 0, showLine: true, fill: false
+    });
+    const toXY = (u, v) => ({x: h + u*cs - v*sn, y: k + u*sn + v*cs});
+    if (isEll) {
+        const pts = [];
+        for (let t = 0; t <= 2*Math.PI + 0.01; t += 0.03) pts.push(toXY(a*Math.cos(t), b*Math.sin(t)));
+        curves.push(mk(pts, 'Locus (Ellipse)'));
+    } else {
+        const p1 = [], p2 = [];
+        for (let t = -3; t <= 3.001; t += 0.05) {
+            p1.push(toXY(a*Math.cosh(t), b*Math.sinh(t)));
+            p2.push(toXY(-a*Math.cosh(t), b*Math.sinh(t)));
+        }
+        curves.push(mk(p1, 'Locus (Hyperbola)'), mk(p2, 'Locus (other branch)'));
+    }
+    return {tex, orientSteps, eqSteps, curves};
+}
+
 function renderEquationLocusCard() {
     // Deactivate all other buttons
     distanceBtn.classList.remove('active-btn');
@@ -1508,6 +1716,9 @@ function renderEquationLocusCard() {
             let steps = [];
             let points = [];
             let specialPoints = [];
+            let curveSets = [];
+            let customFn = null;
+            let bisectorLine = null;
             
             if (condition === 'distanceRatio') {
                 // Distance ratio condition: PA / PB = m/n
@@ -1540,14 +1751,56 @@ function renderEquationLocusCard() {
                 // Divide by A if A ≠ 0
                 if (Math.abs(A) < 1e-10) {
                     // This would be a line (perpendicular bisector when m=n)
-                    if (Math.abs(m - n) < 1e-10) {
+                    if (Math.abs(Math.abs(m) - Math.abs(n)) < 1e-10) {
                         // Perpendicular bisector
                         const midX = (ax + bx)/2;
                         const midY = (ay + by)/2;
-                        const slopeAB = (by - ay) / (bx - ax);
-                        const perpSlope = -1 / slopeAB;
-                        
-                        locusEquation = `(y - ${fmt(midY)}) = ${fmt(perpSlope)}(x - ${fmt(midX)})`;
+                        const dxAB = bx - ax, dyAB = by - ay;
+                        if (Math.abs(dxAB) < 1e-10 && Math.abs(dyAB) < 1e-10) {
+                            throw new Error('Points A and B must be different');
+                        }
+                        let bisSteps, slopeAB, perpSlope;
+                        if (Math.abs(dyAB) < 1e-10) {
+                            // AB horizontal -> bisector vertical
+                            locusEquation = `x = ${fmt(midX)}`;
+                            bisSteps = [
+                                `📍 STEP 4: Find slope of AB`,
+                                `   • y₂ = y₁ = ${fmt(ay)}, so AB is HORIZONTAL (slope 0)`,
+                                `📍 STEP 5: Find the perpendicular direction`,
+                                `   • A line perpendicular to a horizontal line is VERTICAL (slope undefined)`,
+                                `📍 STEP 6: Equation of perpendicular bisector`,
+                                `   • A vertical line through the midpoint (${fmt(midX)}, ${fmt(midY)}) is x = ${fmt(midX)}`,
+                                `   • This is the locus equation`
+                            ];
+                        } else if (Math.abs(dxAB) < 1e-10) {
+                            // AB vertical -> bisector horizontal
+                            locusEquation = `y = ${fmt(midY)}`;
+                            bisSteps = [
+                                `📍 STEP 4: Find slope of AB`,
+                                `   • x₂ = x₁ = ${fmt(ax)}, so AB is VERTICAL (slope undefined)`,
+                                `📍 STEP 5: Find the perpendicular direction`,
+                                `   • A line perpendicular to a vertical line is HORIZONTAL (slope 0)`,
+                                `📍 STEP 6: Equation of perpendicular bisector`,
+                                `   • A horizontal line through the midpoint (${fmt(midX)}, ${fmt(midY)}) is y = ${fmt(midY)}`,
+                                `   • This is the locus equation`
+                            ];
+                        } else {
+                            slopeAB = dyAB / dxAB;
+                            perpSlope = -1 / slopeAB;
+                            locusEquation = `${locusShift('y', midY)} = ${fmt(perpSlope)}${locusShift('x', midX)}`;
+                            bisSteps = [
+                                `📍 STEP 4: Find slope of AB`,
+                                `   • Slope m_AB = (y₂ - y₁)/(x₂ - x₁)`,
+                                `   • m_AB = (${fmt(by)} - ${fmt(ay)})/(${fmt(bx)} - ${fmt(ax)}) = ${fmt(slopeAB)}`,
+                                `📍 STEP 5: Find perpendicular slope`,
+                                `   • Perpendicular slope m_perp = -1/m_AB`,
+                                `   • m_perp = -1/${fmt(slopeAB)} = ${fmt(perpSlope)}`,
+                                `📍 STEP 6: Equation of perpendicular bisector`,
+                                `   • Using point-slope form: y - y₁ = m(x - x₁)`,
+                                `   • ${locusEquation}`,
+                                `   • This is the locus equation`
+                            ];
+                        }
                         steps = [
                             `📍 STEP 1: Understanding the condition`,
                             `   • Moving point P(x,y) satisfies: PA / PB = ${fmt(m)} / ${fmt(n)} = 1`,
@@ -1565,19 +1818,11 @@ function renderEquationLocusCard() {
                             `   • M = ((${fmt(ax)} + ${fmt(bx)})/2, (${fmt(ay)} + ${fmt(by)})/2)`,
                             `   • M = (${fmt(midX)}, ${fmt(midY)})`,
                             
-                            `📍 STEP 4: Find slope of AB`,
-                            `   • Slope m_AB = (y₂ - y₁)/(x₂ - x₁)`,
-                            `   • m_AB = (${fmt(by)} - ${fmt(ay)})/(${fmt(bx)} - ${fmt(ax)}) = ${fmt(slopeAB)}`,
-                            
-                            `📍 STEP 5: Find perpendicular slope`,
-                            `   • Perpendicular slope m_perp = -1/m_AB`,
-                            `   • m_perp = -1/${fmt(slopeAB)} = ${fmt(perpSlope)}`,
-                            
-                            `📍 STEP 6: Equation of perpendicular bisector`,
-                            `   • Using point-slope form: y - y₁ = m(x - x₁)`,
-                            `   • y - ${fmt(midY)} = ${fmt(perpSlope)}(x - ${fmt(midX)})`,
-                            `   • This is the locus equation`
+                            ...bisSteps
                         ];
+                        specialPoints.push({x: ax, y: ay, label: 'A'});
+                        specialPoints.push({x: bx, y: by, label: 'B'});
+                        bisectorLine = {mx: midX, my: midY, dx: -dyAB, dy: dxAB};
                     } else {
                         locusEquation = 'Special case - line';
                         steps = [`Special case when 1 - (m²/n²) = 0`];
@@ -1593,7 +1838,7 @@ function renderEquationLocusCard() {
                         steps = [`No real points satisfy this condition`];
                     } else {
                         const radius = Math.sqrt(radiusSq);
-                        locusEquation = `(x - ${fmt(centerX)})² + (y - ${fmt(centerY)})² = ${fmt(radius)}²`;
+                        locusEquation = `${locusShift('x', centerX)}² + ${locusShift('y', centerY)}² = ${fmt(radius)}²`;
                         
                         steps = [
                             `📍 STEP 1: Understanding the condition`,
@@ -1622,16 +1867,16 @@ function renderEquationLocusCard() {
                             `   • x² + y² + (${fmt(C/A)})x + (${fmt(D/A)})y + (${fmt(E/A)}) = 0`,
                             
                             `📍 STEP 8: Complete the square for x terms`,
-                            `   • x² + ${fmt(C/A)}x = (x - ${fmt(centerX)})² - ${fmt(centerX*centerX)}`,
+                            `   • x² + ${fmt(C/A)}x = ${locusShift('x', centerX)}² - ${fmt(centerX*centerX)}`,
                             
                             `📍 STEP 9: Complete the square for y terms`,
-                            `   • y² + ${fmt(D/A)}y = (y - ${fmt(centerY)})² - ${fmt(centerY*centerY)}`,
+                            `   • y² + ${fmt(D/A)}y = ${locusShift('y', centerY)}² - ${fmt(centerY*centerY)}`,
                             
                             `📍 STEP 10: Substitute back`,
-                            `   • (x - ${fmt(centerX)})² + (y - ${fmt(centerY)})² = ${fmt(centerX*centerX + centerY*centerY - E/A)}`,
+                            `   • ${locusShift('x', centerX)}² + ${locusShift('y', centerY)}² = ${fmt(centerX*centerX + centerY*centerY - E/A)}`,
                             
                             `📍 STEP 11: Simplify right side`,
-                            `   • (x - ${fmt(centerX)})² + (y - ${fmt(centerY)})² = ${fmt(radius)}²`,
+                            `   • ${locusShift('x', centerX)}² + ${locusShift('y', centerY)}² = ${fmt(radius)}²`,
                             
                             `📍 STEP 12: Interpret the result`,
                             `   • This is a CIRCLE with:`,
@@ -1664,116 +1909,44 @@ function renderEquationLocusCard() {
                 const a = k/2;
                 const c = distBetweenFoci/2;
                 const bSq = a*a - c*c;
+                const b = Math.sqrt(bSq);
                 const midX = (f1x + f2x)/2;
                 const midY = (f1y + f2y)/2;
-                
-// Inside the distanceRatio condition, replace the STEP 6 section with this more detailed explanation:
+                const conic = locusConicInfo('ellipse', f1x, f1y, f2x, f2y, a, b, midX, midY);
+                locusEquation = conic.tex;
+                curveSets = conic.curves;
 
-steps = [
-    `📍 STEP 1: Understanding the condition`,
-    `   • Moving point P(x,y) satisfies: PA / PB = ${fmt(m)} / ${fmt(n)}`,
-    `   • This means the distance from P to A divided by distance from P to B is constant`,
-    
-    `📍 STEP 2: Square both sides to remove square roots`,
-    `   • (PA)² / (PB)² = (${fmt(m)}/${fmt(n)})²`,
-    `   • PA² / PB² = ${fmt(m*m)} / ${fmt(n*n)} = ${fmt(k)}`,
-    
-    `📍 STEP 3: Write distance formulas`,
-    `   • PA² = (x - ${fmt(ax)})² + (y - ${fmt(ay)})²`,
-    `   • PB² = (x - ${fmt(bx)})² + (y - ${fmt(by)})²`,
-    
-    `📍 STEP 4: Substitute into ratio equation`,
-    `   • (x - ${fmt(ax)})² + (y - ${fmt(ay)})² = ${fmt(k)}[(x - ${fmt(bx)})² + (y - ${fmt(by)})²]`,
-    
-    `📍 STEP 5: Expand both sides`,
-    `   • LEFT SIDE expansion:`,
-    `     (x - ${fmt(ax)})² = x² - ${fmt(2*ax)}x + ${fmt(ax*ax)}`,
-    `     (y - ${fmt(ay)})² = y² - ${fmt(2*ay)}y + ${fmt(ay*ay)}`,
-    `     So LEFT = x² + y² - ${fmt(2*ax)}x - ${fmt(2*ay)}y + (${fmt(ax*ax)} + ${fmt(ay*ay)})`,
-    
-    `   • RIGHT SIDE expansion:`,
-    `     First expand inside brackets:`,
-    `     (x - ${fmt(bx)})² = x² - ${fmt(2*bx)}x + ${fmt(bx*bx)}`,
-    `     (y - ${fmt(by)})² = y² - ${fmt(2*by)}y + ${fmt(by*by)}`,
-    `     So inside = x² + y² - ${fmt(2*bx)}x - ${fmt(2*by)}y + (${fmt(bx*bx)} + ${fmt(by*by)})`,
-    `     Now multiply by ${fmt(k)}:`,
-    `     RIGHT = ${fmt(k)}x² + ${fmt(k)}y² - ${fmt(2*k*bx)}x - ${fmt(2*k*by)}y + ${fmt(k*(bx*bx + by*by))}`,
-    
-    `📍 STEP 6: Bring ALL terms to LEFT side (this is the key step)`,
-    `   • Original equation: LEFT = RIGHT`,
-    `   • To bring all terms to left side, subtract RIGHT side from both sides:`,
-    `     LEFT - RIGHT = 0`,
-    
-    `   • Write it out term by term:`,
-    `     (x² + y² - ${fmt(2*ax)}x - ${fmt(2*ay)}y + ${fmt(ax*ax + ay*ay)})`,
-    `     - (${fmt(k)}x² + ${fmt(k)}y² - ${fmt(2*k*bx)}x - ${fmt(2*k*by)}y + ${fmt(k*(bx*bx + by*by))}) = 0`,
-    
-    `   • NOW GROUP LIKE TERMS:`,
-    
-    `   • For x² terms:`,
-    `     x² - ${fmt(k)}x² = (1 - ${fmt(k)})x²`,
-    
-    `   • For y² terms:`,
-    `     y² - ${fmt(k)}y² = (1 - ${fmt(k)})y²`,
-    
-    `   • For x terms:`,
-    `     -${fmt(2*ax)}x - ( -${fmt(2*k*bx)}x ) = -${fmt(2*ax)}x + ${fmt(2*k*bx)}x`,
-    `     = ( -${fmt(2*ax)} + ${fmt(2*k*bx)} )x`,
-    `     = ${fmt(-2*ax + 2*k*bx)}x`,
-    
-    `   • For y terms:`,
-    `     -${fmt(2*ay)}y - ( -${fmt(2*k*by)}y ) = -${fmt(2*ay)}y + ${fmt(2*k*by)}y`,
-    `     = ( -${fmt(2*ay)} + ${fmt(2*k*by)} )y`,
-    `     = ${fmt(-2*ay + 2*k*by)}y`,
-    
-    `   • For constant terms:`,
-    `     ${fmt(ax*ax + ay*ay)} - ${fmt(k*(bx*bx + by*by))}`,
-    `     = ${fmt(ax*ax + ay*ay - k*(bx*bx + by*by))}`,
-    
-    `   📌 VISUAL REPRESENTATION OF TERM COLLECTION:`,
-    `   ┌─────────────────────────────────────────────────┐`,
-    `   │  (1 - ${fmt(k)})x² + (1 - ${fmt(k)})y² +         │`,
-    `   │  (${fmt(-2*ax + 2*k*bx)})x + (${fmt(-2*ay + 2*k*by)})y +  │`,
-    `   │  (${fmt(ax*ax + ay*ay - k*(bx*bx + by*by))}) = 0    │`,
-    `   └─────────────────────────────────────────────────┘`,
-    
-    `📍 STEP 7: This is our simplified equation:`,
-    `   • ${fmt(A)}x² + ${fmt(A)}y² + (${fmt(C)})x + (${fmt(D)})y + (${fmt(E)}) = 0`,
-    
-    `📍 STEP 8: Divide by coefficient of x² (${fmt(A)}) to make it look like a circle equation`,
-    `   • x² + y² + (${fmt(C/A)})x + (${fmt(D/A)})y + (${fmt(E/A)}) = 0`,
-    
-    `📍 STEP 9: Complete the square for x terms`,
-    `   • x² + ${fmt(C/A)}x = (x - ${fmt(centerX)})² - ${fmt(centerX*centerX)}`,
-    
-    `📍 STEP 10: Complete the square for y terms`,
-    `   • y² + ${fmt(D/A)}y = (y - ${fmt(centerY)})² - ${fmt(centerY*centerY)}`,
-    
-    `📍 STEP 11: Substitute back and simplify`,
-    `   • (x - ${fmt(centerX)})² - ${fmt(centerX*centerX)} + (y - ${fmt(centerY)})² - ${fmt(centerY*centerY)} + ${fmt(E/A)} = 0`,
-    `   • (x - ${fmt(centerX)})² + (y - ${fmt(centerY)})² = ${fmt(centerX*centerX + centerY*centerY - E/A)}`,
-    
-    `📍 STEP 12: Calculate the right side`,
-    `   • Right side = ${fmt(centerX*centerX + centerY*centerY - E/A)} = ${fmt(radius)}²`,
-    
-    `📍 STEP 13: Final equation of the locus`,
-    `   • (x - ${fmt(centerX)})² + (y - ${fmt(centerY)})² = ${fmt(radius)}²`,
-    
-    `📍 STEP 14: Interpret the result`,
-    `   • This is a CIRCLE with:`,
-    `     - Center at (${fmt(centerX)}, ${fmt(centerY)})`,
-    `     - Radius = ${fmt(radius)}`,
-    `   • This circle is called the APOLLONIAN CIRCLE of points A and B with ratio ${fmt(m)}:${fmt(n)}`,
-    `   • Every point P on this circle satisfies PA : PB = ${fmt(m)} : ${fmt(n)}`
-];
-                
-                locusEquation = `Ellipse with foci at (${fmt(f1x)},${fmt(f1y)}) and (${fmt(f2x)},${fmt(f2y)})`;
-                
+                steps = [
+                    `📍 STEP 1: Understanding the condition`,
+                    `   • Moving point P(x,y) satisfies: PF₁ + PF₂ = ${fmt(k)}`,
+                    `   • This is the definition of an ELLIPSE (the sum is greater than F₁F₂)`,
+
+                    `📍 STEP 2: Identify the foci`,
+                    `   • F₁ = (${fmt(f1x)}, ${fmt(f1y)}), F₂ = (${fmt(f2x)}, ${fmt(f2y)})`,
+
+                    `📍 STEP 3: Find a and c`,
+                    `   • 2a = ${fmt(k)}, so a = ${fmt(a)}`,
+                    `   • 2c = F₁F₂ = ${fmt(distBetweenFoci)}, so c = ${fmt(c)}`,
+
+                    `📍 STEP 4: Find b`,
+                    `   • b² = a² - c² = ${fmt(a*a)} - ${fmt(c*c)} = ${fmt(bSq)}`,
+                    `   • b = ${fmt(b)}`,
+
+                    `📍 STEP 5: Find the centre`,
+                    `   • Centre = midpoint of the foci = (${fmt(midX)}, ${fmt(midY)})`,
+
+                    `📍 STEP 6: Orientation`,
+                    ...conic.orientSteps,
+
+                    `📍 STEP 7: Equation of the ellipse`,
+                    ...conic.eqSteps
+                ];
+
                 // Add points for graph
                 specialPoints.push({x: f1x, y: f1y, label: 'F₁'});
                 specialPoints.push({x: f2x, y: f2y, label: 'F₂'});
                 specialPoints.push({x: midX, y: midY, label: 'Center'});
-                
+
             } else if (condition === 'diffDistances') {
                 // Difference of distances constant from two foci → hyperbola
                 const f1x = validateNumber(document.getElementById('locusF1x').value, 'F₁ x');
@@ -1784,6 +1957,9 @@ steps = [
                 
                 const distBetweenFoci = Math.sqrt((f2x - f1x)**2 + (f2y - f1y)**2);
                 
+                if (k <= 0) {
+                    throw new Error('For a hyperbola, the constant k must be positive');
+                }
                 if (k >= distBetweenFoci) {
                     throw new Error('For a hyperbola, constant must be less than distance between foci');
                 }
@@ -1793,6 +1969,8 @@ steps = [
                 const bSq = c*c - a*a;
                 const midX = (f1x + f2x)/2;
                 const midY = (f1y + f2y)/2;
+                const conic = locusConicInfo('hyperbola', f1x, f1y, f2x, f2y, a, Math.sqrt(bSq), midX, midY);
+                curveSets = conic.curves;
                 
                 steps = [
                     `📍 STEP 1: Understanding the condition`,
@@ -1824,11 +2002,10 @@ steps = [
                     `   • Center = (${fmt(midX)}, ${fmt(midY)})`,
                     
                     `📍 STEP 7: Determine orientation`,
-                    `   • The transverse axis is along the line joining the foci`,
+                    ...conic.orientSteps,
                     
-                    `📍 STEP 8: Write the equation`,
-                    `   • Standard form: (x - h)²/a² - (y - k)²/b² = 1 (if transverse axis is horizontal)`,
-                    `   • (x - ${fmt(midX)})²/${fmt(a*a)} - (y - ${fmt(midY)})²/${fmt(bSq)} = 1`,
+                    `📍 STEP 8: Equation of the hyperbola`,
+                    ...conic.eqSteps,
                     
                     `📍 STEP 9: Geometric interpretation`,
                     `   • This hyperbola has:`,
@@ -1839,7 +2016,7 @@ steps = [
                     `   • For any point P on this hyperbola, the absolute difference of distances to the two foci is constant = ${fmt(k)}`
                 ];
                 
-                locusEquation = `Hyperbola with foci at (${fmt(f1x)},${fmt(f1y)}) and (${fmt(f2x)},${fmt(f2y)})`;
+                locusEquation = conic.tex;
                 
                 // Add points for graph
                 specialPoints.push({x: f1x, y: f1y, label: 'F₁'});
@@ -1848,15 +2025,16 @@ steps = [
                 
             } else {
                 // Custom equation
-                const customEq = document.getElementById('locusCustomEq').value;
-                locusEquation = customEq + ' = 0';
+                const customEq = document.getElementById('locusCustomEq').value.trim();
+                customFn = parseLocusExpression(customEq);
+                locusEquation = customEq.includes('=') ? customEq : customEq + ' = 0';
                 steps = [
                     `📍 STEP 1: Custom equation entered`,
-                    `   • ${customEq} = 0`,
+                    `   • ${customEq.includes('=') ? customEq : customEq + ' = 0'}`,
                     
                     `📍 STEP 2: Understanding this locus`,
                     `   • This equation represents all points (x,y) that satisfy the condition`,
-                    `   • The graph shows the set of all such points`,
+                    `   • The graph shows the set of all such points (plotted from your equation)`,
                     
                     `📍 STEP 3: Types of loci from common equations`,
                     `   • Linear equation (ax + by + c = 0) → Straight line`,
@@ -1866,7 +2044,7 @@ steps = [
                     `   • Quadratic with y = ax² + bx + c → Parabola`,
                     
                     `📍 STEP 4: The graph displays this locus`,
-                    `   • Blue curve shows all points satisfying the equation`,
+                    `   • The curve shows the points of the window -10 ≤ x, y ≤ 10 that satisfy the equation`,
                     `   • You can verify by plugging in coordinates`
                 ];
             }
@@ -1876,24 +2054,8 @@ steps = [
             
             // For custom equations, we can sample points
             if (condition === 'custom') {
-                // Generate points for the locus by sampling
-                const customEq = document.getElementById('locusCustomEq').value;
-                const locusPoints = [];
-                
-                // Simple parsing for common equations
-                if (customEq.includes('x^2 + y^2')) {
-                    // Circle: x^2 + y^2 = r^2
-                    const r = Math.sqrt(25); // Assuming x^2 + y^2 - 25 = 0
-                    for (let t = 0; t < 2*Math.PI; t += 0.1) {
-                        locusPoints.push({x: r * Math.cos(t), y: r * Math.sin(t)});
-                    }
-                    
-                    steps.push(`📍 STEP 5: This is a CIRCLE with radius ${fmt(r)}`);
-                    
-                } else if (customEq.includes('x^2') && customEq.includes('y^2') && customEq.includes('-')) {
-                    // Ellipse or hyperbola approximation
-                    steps.push(`📍 STEP 5: This appears to be a conic section (ellipse or hyperbola)`);
-                }
+                const locusPoints = sampleImplicitCurve(customFn, 10, 240);
+                if (!locusPoints.length) steps.push(`📍 STEP 5: No points of this curve lie inside the window -10 ≤ x, y ≤ 10`);
                 
                 const datasets = [{
                     label: 'Locus',
@@ -1903,6 +2065,7 @@ steps = [
                     borderWidth: 2,
                     pointRadius: 0,
                     showLine: true,
+                    spanGaps: false,
                     fill: false
                 }];
                 
@@ -2003,9 +2166,42 @@ steps = [
                             }
                         });
                     }
+                    else if (bisectorLine) {
+                        const L = 40, len = Math.hypot(bisectorLine.dx, bisectorLine.dy) || 1;
+                        const ux = bisectorLine.dx / len, uy = bisectorLine.dy / len;
+                        const datasets = [
+                            {
+                                label: 'Locus (Perpendicular Bisector)',
+                                data: [{x: bisectorLine.mx - L*ux, y: bisectorLine.my - L*uy}, {x: bisectorLine.mx + L*ux, y: bisectorLine.my + L*uy}],
+                                backgroundColor: 'transparent', borderColor: '#2c3e50', borderWidth: 3,
+                                pointRadius: 0, showLine: true, fill: false
+                            },
+                            {
+                                label: 'Fixed Points',
+                                data: specialPoints,
+                                backgroundColor: '#d44c2f', pointRadius: 8, pointStyle: 'circle',
+                                borderColor: 'white', borderWidth: 2, showLine: false
+                            }
+                        ];
+                        destroyGraph();
+                        const ctx = document.getElementById('coordinateGraph').getContext('2d');
+                        chartInstance = new Chart(ctx, {
+                            type: 'scatter',
+                            data: { datasets },
+                            options: {
+                                responsive: true, maintainAspectRatio: false, animation: false,
+                                plugins: { legend: { display: true, position: 'top' }, tooltip: { enabled: true } },
+                                scales: {
+                                    x: { min: -12, max: 12, grid: { color: '#cbd5e1' } },
+                                    y: { min: -12, max: 12, grid: { color: '#cbd5e1' } }
+                                }
+                            }
+                        });
+                    }
                 } else if (condition === 'sumDistances' || condition === 'diffDistances') {
-                    // For ellipse/hyperbola, draw points
+                    // For ellipse/hyperbola, draw the curve and the foci
                     const datasets = [
+                        ...curveSets,
                         {
                             label: 'Fixed Points (Foci)',
                             data: specialPoints,
@@ -2053,6 +2249,7 @@ steps = [
             attachStepsToggle();
             
         } catch (e) {
+            resultDiv.innerHTML = '';
             showError(e.message);
         }
     }
@@ -3786,15 +3983,15 @@ function renderLocusConstantRatioCard() {
                 const denom = 1 - lambdaSq;
                 
                 // Center coordinates
-                centerX = (-2*ax + 2*lambdaSq*bx) / (2 * denom);
-                centerY = (-2*ay + 2*lambdaSq*by) / (2 * denom);
+                centerX = (2*ax - 2*lambdaSq*bx) / (2 * denom);
+                centerY = (2*ay - 2*lambdaSq*by) / (2 * denom);
                 
                 // Radius squared
                 const constTerm = (ax*ax + ay*ay - lambdaSq*(bx*bx + by*by)) / denom;
                 const radiusSq = centerX*centerX + centerY*centerY - constTerm;
                 radius = Math.sqrt(Math.abs(radiusSq));
                 
-                locusEquation = `(x - ${fmt(centerX)})² + (y - ${fmt(centerY)})² = ${fmt(radius)}²`;
+                locusEquation = `${locusShift('x', centerX)}^2 + ${locusShift('y', centerY)}^2 = ${fmt(radius)}^2`;
                 
                 // Build detailed steps with actual numbers
                 steps = [
@@ -3819,12 +4016,12 @@ function renderLocusConstantRatioCard() {
                     `   • x² + y² + (${fmt((-2*ax + 2*lambdaSq*bx)/denom)})x + (${fmt((-2*ay + 2*lambdaSq*by)/denom)})y + (${fmt((ax*ax + ay*ay - lambdaSq*(bx*bx + by*by))/denom)}) = 0`,
                     ``,
                     `📍 STEP 6: Complete the square to find center and radius`,
-                    `   • For x terms: x² + ${fmt((-2*ax + 2*lambdaSq*bx)/denom)}x = (x - ${fmt(centerX)})² - ${fmt(centerX*centerX)}`,
-                    `   • For y terms: y² + ${fmt((-2*ay + 2*lambdaSq*by)/denom)}y = (y - ${fmt(centerY)})² - ${fmt(centerY*centerY)}`,
+                    `   • For x terms: x² + ${fmt((-2*ax + 2*lambdaSq*bx)/denom)}x = ${locusShift('x', centerX)}² - ${fmt(centerX*centerX)}`,
+                    `   • For y terms: y² + ${fmt((-2*ay + 2*lambdaSq*by)/denom)}y = ${locusShift('y', centerY)}² - ${fmt(centerY*centerY)}`,
                     ``,
                     `📍 STEP 7: Substitute back`,
-                    `   • (x - ${fmt(centerX)})² + (y - ${fmt(centerY)})² = ${fmt(centerX*centerX + centerY*centerY - (ax*ax + ay*ay - lambdaSq*(bx*bx + by*by))/denom)}`,
-                    `   • (x - ${fmt(centerX)})² + (y - ${fmt(centerY)})² = ${fmt(radius)}²`,
+                    `   • ${locusShift('x', centerX)}² + ${locusShift('y', centerY)}² = ${fmt(centerX*centerX + centerY*centerY - (ax*ax + ay*ay - lambdaSq*(bx*bx + by*by))/denom)}`,
+                    `   • ${locusShift('x', centerX)}² + ${locusShift('y', centerY)}² = ${fmt(radius)}²`,
                     ``,
                     `📍 STEP 8: Interpret the result`,
                     `   • This is a CIRCLE with:`,
@@ -3847,7 +4044,7 @@ function renderLocusConstantRatioCard() {
                 const distB = Math.sqrt((testX - bx)**2 + (testY - by)**2);
                 const actualRatio = distA / distB;
                 const onLocus = isCircle ? 
-                    Math.abs((testX - centerX)**2 + (testY - centerY)**2 - radius**2) < 1e-10 :
+                    Math.abs((testX - centerX)**2 + (testY - centerY)**2 - radius**2) < 1e-6 :
                     Math.abs(distA - distB) < 1e-10;
                 
                 steps.push(``);
@@ -3937,7 +4134,7 @@ function renderLocusConstantRatioCard() {
                 const distA = Math.sqrt((testX - ax)**2 + (testY - ay)**2);
                 const distB = Math.sqrt((testX - bx)**2 + (testY - by)**2);
                 const onLocus = isCircle ? 
-                    Math.abs((testX - centerX)**2 + (testY - centerY)**2 - radius**2) < 1e-10 :
+                    Math.abs((testX - centerX)**2 + (testY - centerY)**2 - radius**2) < 1e-6 :
                     Math.abs(distA - distB) < 1e-10;
                     
                 datasets.push({
@@ -6124,40 +6321,37 @@ function renderLocusIntersectionVariableCard() {
                 }
                 
             } else {
-                // L₁: x = a t, y = a/t; L₂: x = b/t, y = b t
+                // L₁: x = a t, y = a/t; L₂: x = b/t, y = b t  (same parameter t)
                 steps = [
-                    `📍 STEP 1: Given lines in parametric form with parameter t`,
-                    `   • L₁: x = a t, y = a/t (where a is constant)`,
-                    `   • L₂: x = b/t, y = b t (where b is constant)`,
+                    `📍 STEP 1: Given curves with the same parameter t`,
+                    `   • L₁: x = a t, y = a/t (a is a nonzero constant)`,
+                    `   • L₂: x = b/t, y = b t (b is a nonzero constant)`,
                     
-                    `📍 STEP 2: Find intersection point P`,
-                    `   • For intersection, the coordinates from L₁ and L₂ must be equal:`,
-                    `   • a t = b/t  →  t² = b/a`,
-                    `   • Also a/t = b t → same condition`,
+                    `📍 STEP 2: Eliminate t in each curve separately`,
+                    `   • L₁: x·y = (a t)(a/t) = a²  →  the hyperbola xy = a²`,
+                    `   • L₂: x·y = (b/t)(b t) = b²  →  the hyperbola xy = b²`,
                     
-                    `📍 STEP 3: Coordinates of intersection`,
-                    `   • x = a·t = a·√(b/a) = √(ab)`,
-                    `   • y = a/t = a/√(b/a) = a·√(a/b) = √(a²·a/b) = √(a³/b)`,
+                    `📍 STEP 3: Intersection for the same value of t`,
+                    `   • Equal x: a t = b/t  →  t² = b/a`,
+                    `   • Equal y: a/t = b t  →  t² = a/b`,
+                    `   • Both hold only if b/a = a/b, i.e. a² = b²`,
                     
-                    `📍 STEP 4: Eliminate a and b`,
-                    `   • From above: x·y = √(ab) · √(a³/b) = √(a⁴) = a²`,
-                    `   • Also x² = ab`,
-                    `   • So y = a²/x`,
+                    `📍 STEP 4: Conclusion`,
+                    `   • If a² ≠ b² the curves xy = a² and xy = b² never meet, so there is no intersection point and no locus`,
+                    `   • If a = b: t² = 1, so t = ±1 and the intersections are only the two points (a, a) and (-a, -a)`,
+                    `   • If a = -b: t² = -1 has no real solution`,
                     
-                    `📍 STEP 5: Locus equation (for given a,b)`,
-                    `   • xy = constant (depending on a,b)`,
-                    `   • For example, if a = b = 1, then xy = 1`,
-                    
-                    `📍 STEP 6: General case`,
-                    `   • The locus is a RECTANGULAR HYPERBOLA`
+                    `📍 STEP 5: What the graph shows`,
+                    `   • The two families of points lie on the hyperbolas xy = a² and xy = b² (shown here for a = 1)`
                 ];
                 
-                locusEquation = `xy = constant (depends on parameters)`;
+                locusEquation = `xy = a^2 \\text{ and } xy = b^2 \\text{ (they meet only when } a^2 = b^2 \\text{)}`;
                 
-                // Generate hyperbola points for xy = 1
+                // Generate hyperbola points for xy = a^2 with a = 1
                 for (let x = 0.2; x <= 5; x += 0.1) {
                     curvePoints.push({x: x, y: 1/x});
                 }
+                curvePoints.push({x: NaN, y: NaN});
                 for (let x = -5; x <= -0.2; x += 0.1) {
                     curvePoints.push({x: x, y: 1/x});
                 }
@@ -6445,16 +6639,24 @@ function renderLocusSectionFormulaCard() {
                 ];
                 
                 // Find equation of line AB
-                const slopeAB = (by - ay) / (bx - ax);
-                const intercept = ay - slopeAB * ax;
-                locusEquation = `y = ${fmt(slopeAB)}x + ${fmt(intercept)} (line AB)`;
-                
-                // Draw line AB
+                if (Math.abs(bx - ax) < 1e-10 && Math.abs(by - ay) < 1e-10) {
+                    throw new Error('Points A and B must be different');
+                }
                 const minX = -2, maxX = 6;
-                const linePoints = [
-                    {x: minX, y: slopeAB * minX + intercept},
-                    {x: maxX, y: slopeAB * maxX + intercept}
-                ];
+                let linePoints;
+                if (Math.abs(bx - ax) < 1e-10) {
+                    // Vertical line AB
+                    locusEquation = `x = ${fmt(ax)} \\text{ (line AB, vertical)}`;
+                    linePoints = [{x: ax, y: -2}, {x: ax, y: 6}];
+                } else {
+                    const slopeAB = (by - ay) / (bx - ax);
+                    const intercept = ay - slopeAB * ax;
+                    locusEquation = `y = ${fmt(slopeAB)}x${locusTerm(intercept, '')} \\text{ (line AB)}`;
+                    linePoints = [
+                        {x: minX, y: slopeAB * minX + intercept},
+                        {x: maxX, y: slopeAB * maxX + intercept}
+                    ];
+                }
                 
                 const datasets = [{
                     label: 'Locus (line AB)',

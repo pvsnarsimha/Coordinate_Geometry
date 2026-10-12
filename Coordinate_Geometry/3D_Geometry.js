@@ -681,6 +681,32 @@ function fmt(n) {
     return Math.round(n * 10000) / 10000;
 }
 
+// Signed-term helper: " + 1.2" / " - 1.2" (minus defaults to the proper U+2212 sign)
+function _cg3Sgn(v, minus) {
+    const r = fmt(v);
+    return (r < 0 ? (minus || '\u2212') : '+') + ' ' + Math.abs(r);
+}
+
+// Symmetric form with zero direction ratios written as "x = x1" instead of dividing by 0
+function _cg3Sym(px, py, pz, a, b, c) {
+    const parts = [], fixed = [];
+    [['x', px, a], ['y', py, b], ['z', pz, c]].forEach(([v, p, d]) => {
+        if (Math.abs(d) < 1e-9) fixed.push(v + ' = ' + fmt(p));
+        else {
+            const r = fmt(p);
+            const num = r === 0 ? v : v + ' ' + (r < 0 ? '+' : '-') + ' ' + Math.abs(r);
+            parts.push('\\frac{' + num + '}{' + fmt(d) + '}');
+        }
+    });
+    const chain = parts.length > 1 ? parts.join(' = ') : '';
+    const eqs = parts.length > 1 ? fixed : fixed.concat(parts.length === 1 ? [] : []);
+    const out = [];
+    if (chain) out.push(chain);
+    if (parts.length === 1) out.push(parts[0] + ' = t');
+    eqs.forEach(e => out.push(e));
+    return out.join(',\\; ');
+}
+
 // Expose functions globally
 window.init3DScene = init3DScene;
 window.clear3DObjects = clear3DObjects;
@@ -1299,7 +1325,7 @@ function renderLineSymmetricFormCard() {
                 add3DArrow({x: 0, y: 0, z: 0}, {x: 0, y: 0, z: 1}, '#e67e22', 5);
                 
                 // Generate steps
-                const symmetricEq = `\\frac{x - ${fmt(x1)}}{${fmt(a)}} = \\frac{y - ${fmt(y1)}}{${fmt(b)}} = \\frac{z - ${fmt(z1)}}{${fmt(c)}}`;
+                const symmetricEq = _cg3Sym(x1, y1, z1, a, b, c);
                 
                 let steps = [
                     `① Point on line`,
@@ -1309,7 +1335,7 @@ function renderLineSymmetricFormCard() {
                     `   • (a, b, c) = (${fmt(a)}, ${fmt(b)}, ${fmt(c)})`,
                     
                     `③ Symmetric form equation`,
-                    `   • ${symmetricEq}`,
+                    `   • \\( ${symmetricEq} \\)`,
                     
                     `④ Parametric form`,
                     `   • x = ${fmt(x1)} + ${fmt(a)}t`,
@@ -2197,15 +2223,21 @@ function renderIntersectionLines3DCard() {
                 if (isParallel) {
                     // Check if lines are coincident
                     const dp = p2x - p1x, dq = p2y - p1y, dr = p2z - p1z;
-                    const isCoincident = Math.abs(crossX) < 1e-8 && Math.abs(crossY) < 1e-8 && Math.abs(crossZ) < 1e-8;
+                    // Coincident only if P2 - P1 is also parallel to d1
+                    const wX = dq * d1z - dr * d1y, wY = dr * d1x - dp * d1z, wZ = dp * d1y - dq * d1x;
+                    const wMag = Math.sqrt(wX*wX + wY*wY + wZ*wZ);
+                    const d1Mag = Math.sqrt(d1x*d1x + d1y*d1y + d1z*d1z);
+                    const parDist = d1Mag > 0 ? wMag / d1Mag : NaN;
+                    const isCoincident = parDist < 1e-8;
                     
                     if (isCoincident) {
                         steps.push(`④ Lines are COINCIDENT (they overlap completely)`);
                         steps.push(`⑤ Every point on one line lies on the other → infinite intersection points`);
                         resultDiv.innerHTML = `\\( \\text{Lines are COINCIDENT (infinite intersection points)} \\)`;
                     } else {
-                        steps.push(`④ Lines are PARALLEL but not coincident → NO intersection`);
-                        resultDiv.innerHTML = `\\( \\text{Lines are PARALLEL (no intersection)} \\)`;
+                        steps.push(`④ P₂ − P₁ is not parallel to d₁, so lines are PARALLEL but not coincident → NO intersection`);
+                        steps.push(`⑤ Distance between the parallel lines = |(P₂ − P₁) × d₁| / |d₁| = ${fmt(parDist)}`);
+                        resultDiv.innerHTML = `\\( \\text{Lines are PARALLEL (no intersection), distance} = ${fmt(parDist)} \\)`;
                     }
                     
                     // Draw parallel lines
@@ -2238,53 +2270,41 @@ function renderIntersectionLines3DCard() {
                     // From x: p1x + t*d1x = p2x + s*d2x
                     // From y: p1y + t*d1y = p2y + s*d2y
                     
-                    const dxDiff = p2x - p1x;
-                    const dyDiff = p2y - p1y;
+                    // Pick the best-conditioned pair of coordinates (largest |d1 x d2| component)
+                    const dv = [p2x - p1x, p2y - p1y, p2z - p1z];
+                    const A1 = [d1x, d1y, d1z], A2 = [d2x, d2y, d2z];
+                    const P1v = [p1x, p1y, p1z];
+                    const names = ['x', 'y', 'z'];
+                    let ii = 0, jj = 1, kk = 2;
+                    const ax = Math.abs(crossX), ay = Math.abs(crossY), az = Math.abs(crossZ);
+                    if (ax >= ay && ax >= az) { ii = 1; jj = 2; kk = 0; }
+                    else if (ay >= ax && ay >= az) { ii = 0; jj = 2; kk = 1; }
                     
-                    // Solve: t*d1x - s*d2x = dxDiff
-                    //        t*d1y - s*d2y = dyDiff
-                    const det = d1x * (-d2y) - (-d2x) * d1y;
+                    // Solve: t*A1[i] - s*A2[i] = dv[i];  t*A1[j] - s*A2[j] = dv[j]
+                    const det = A1[ii] * (-A2[jj]) - (-A2[ii]) * A1[jj];
+                    const t = (dv[ii] * (-A2[jj]) - (-A2[ii]) * dv[jj]) / det;
+                    const s = (A1[ii] * dv[jj] - dv[ii] * A1[jj]) / det;
                     
-                    if (Math.abs(det) < 1e-8) {
-                        steps.push(`④ System determinant is zero → lines may be skew`);
-                        steps.push(`⑤ Check if they lie in the same plane...`);
-                        
-                        // Check coplanarity
-                        const vecP = { x: p2x - p1x, y: p2y - p1y, z: p2z - p1z };
-                        const tripleProduct = vecP.x * crossX + vecP.y * crossY + vecP.z * crossZ;
-                        
-                        if (Math.abs(tripleProduct) < 1e-8) {
-                            steps.push(`   • Triple product = ${fmt(tripleProduct)} → Lines are COPLANAR`);
-                            steps.push(`   • Lines intersect or are parallel (but we already checked parallel)`);
-                        } else {
-                            steps.push(`   • Triple product = ${fmt(tripleProduct)} → Lines are SKEW (no intersection, not parallel)`);
-                            resultDiv.innerHTML = `\\( \\text{Lines are SKEW (no intersection, not parallel)} \\)`;
-                            intersectPoint = null;
-                        }
+                    // Check the remaining coordinate
+                    const z1 = P1v[kk] + t * A1[kk];
+                    const z2 = [p2x, p2y, p2z][kk] + s * A2[kk];
+                    const nI = names[ii], nJ = names[jj], nK = names[kk];
+                    
+                    steps.push(`④ Solve system from ${nI} and ${nJ} equations (best-conditioned pair):`);
+                    steps.push(`   • t = ${fmt(t)}, s = ${fmt(s)}`);
+                    steps.push(`⑤ Check ${nK}-coordinate:`);
+                    steps.push(`   • ${nK} from Line 1 = ${fmt(P1v[kk])} + ${fmt(t)}·${fmt(A1[kk])} = ${fmt(z1)}`);
+                    steps.push(`   • ${nK} from Line 2 = ${fmt([p2x, p2y, p2z][kk])} + ${fmt(s)}·${fmt(A2[kk])} = ${fmt(z2)}`);
+                    
+                    if (Math.abs(z1 - z2) < 1e-8 * (1 + Math.abs(z1) + Math.abs(z2))) {
+                        intersectPoint = { x: p1x + t * d1x, y: p1y + t * d1y, z: p1z + t * d1z };
+                        steps.push(`⑥ ${nK}-values match → Lines INTERSECT at point (${fmt(intersectPoint.x)}, ${fmt(intersectPoint.y)}, ${fmt(intersectPoint.z)})`);
+                        resultDiv.innerHTML = `\\( \\text{Intersection point: } (${fmt(intersectPoint.x)}, ${fmt(intersectPoint.y)}, ${fmt(intersectPoint.z)}) \\)`;
+                        isIntersecting = true;
                     } else {
-                        const t = (dxDiff * (-d2y) - (-d2x) * dyDiff) / det;
-                        const s = (d1x * dyDiff - dxDiff * d1y) / det;
-                        
-                        // Check third coordinate
-                        const z1 = p1z + t * d1z;
-                        const z2 = p2z + s * d2z;
-                        
-                        steps.push(`④ Solve system from x and y equations:`);
-                        steps.push(`   • t = ${fmt(t)}, s = ${fmt(s)}`);
-                        steps.push(`⑤ Check z-coordinate:`);
-                        steps.push(`   • z from Line 1 = ${fmt(p1z)} + ${fmt(t)}·${fmt(d1z)} = ${fmt(z1)}`);
-                        steps.push(`   • z from Line 2 = ${fmt(p2z)} + ${fmt(s)}·${fmt(d2z)} = ${fmt(z2)}`);
-                        
-                        if (Math.abs(z1 - z2) < 1e-8) {
-                            intersectPoint = { x: p1x + t * d1x, y: p1y + t * d1y, z: p1z + t * d1z };
-                            steps.push(`⑥ z-values match → Lines INTERSECT at point (${fmt(intersectPoint.x)}, ${fmt(intersectPoint.y)}, ${fmt(intersectPoint.z)})`);
-                            resultDiv.innerHTML = `\\( \\text{Intersection point: } (${fmt(intersectPoint.x)}, ${fmt(intersectPoint.y)}, ${fmt(intersectPoint.z)}) \\)`;
-                            isIntersecting = true;
-                        } else {
-                            steps.push(`⑥ z-values do NOT match → Lines are SKEW (no intersection)`);
-                            resultDiv.innerHTML = `\\( \\text{Lines are SKEW (no intersection, not parallel)} \\)`;
-                            intersectPoint = null;
-                        }
+                        steps.push(`⑥ ${nK}-values do NOT match → Lines are SKEW (no intersection)`);
+                        resultDiv.innerHTML = `\\( \\text{Lines are SKEW (no intersection, not parallel)} \\)`;
+                        intersectPoint = null;
                     }
                     
                     // Draw lines
@@ -2335,6 +2355,8 @@ function renderIntersectionLines3DCard() {
                 
             } catch (e) {
                 console.error('Error:', e);
+                resultDiv.innerHTML = `\\( \\text{Error: please check the inputs} \\)`;
+                stepsDiv.innerHTML = '';
             }
         }
         
@@ -2460,7 +2482,15 @@ function renderSkewLines3DCard() {
                 const tripleProduct = diffX * crossX + diffY * crossY + diffZ * crossZ;
                 
                 // Shortest distance
-                const shortestDist = Math.abs(tripleProduct) / crossMag;
+                const isParallelSkew = crossMag < 1e-8;
+                let shortestDist;
+                if (!isParallelSkew) {
+                    shortestDist = Math.abs(tripleProduct) / crossMag;
+                } else {
+                    // Parallel lines: |(P2 - P1) x d1| / |d1|
+                    const wx = diffY * d1.z - diffZ * d1.y, wy = diffZ * d1.x - diffX * d1.z, wz = diffX * d1.y - diffY * d1.x;
+                    shortestDist = Math.sqrt(wx*wx + wy*wy + wz*wz) / Math.sqrt(d1.x*d1.x + d1.y*d1.y + d1.z*d1.z);
+                }
                 
                 // Clear previous objects
                 clear3DObjects();
@@ -2490,23 +2520,16 @@ function renderSkewLines3DCard() {
                 // This is more complex; we'll compute approximate points
                 const denominator = crossMag * crossMag;
                 if (denominator > 1e-8) {
-                    const t = ((diffX * crossX + diffY * crossY + diffZ * crossZ) * crossMag) / denominator;
-                    // Simplified: find closest point on line 1
-                    const closestOnL1 = { 
-                        x: p1.x + t * d1.x, 
-                        y: p1.y + t * d1.y, 
-                        z: p1.z + t * d1.z 
-                    };
-                    
-                    // Draw the common perpendicular line
-                    // For visualization, draw a line showing the shortest distance
-                    // This is approximate
-                    const unitCross = { x: crossX/crossMag, y: crossY/crossMag, z: crossZ/crossMag };
-                    add3DLine(closestOnL1, { x: closestOnL1.x + unitCross.x * shortestDist, 
-                                              y: closestOnL1.y + unitCross.y * shortestDist, 
-                                              z: closestOnL1.z + unitCross.z * shortestDist }, 
-                            '#ca8a04', 3);
+                    // True closest points: C1 = P1 + t d1, C2 = P2 + s d2
+                    const wx = diffY * d2.z - diffZ * d2.y, wy = diffZ * d2.x - diffX * d2.z, wz = diffX * d2.y - diffY * d2.x;
+                    const ux = diffY * d1.z - diffZ * d1.y, uy = diffZ * d1.x - diffX * d1.z, uz = diffX * d1.y - diffY * d1.x;
+                    const t = (wx * crossX + wy * crossY + wz * crossZ) / denominator;
+                    const sp = (ux * crossX + uy * crossY + uz * crossZ) / denominator;
+                    const closestOnL1 = { x: p1.x + t * d1.x, y: p1.y + t * d1.y, z: p1.z + t * d1.z };
+                    const closestOnL2 = { x: p2.x + sp * d2.x, y: p2.y + sp * d2.y, z: p2.z + sp * d2.z };
+                    add3DLine(closestOnL1, closestOnL2, '#ca8a04', 3);
                     add3DPoint(closestOnL1.x, closestOnL1.y, closestOnL1.z, '#ca8a04', 'Closest point on L1', 0.12);
+                    add3DPoint(closestOnL2.x, closestOnL2.y, closestOnL2.z, '#ca8a04', 'Closest point on L2', 0.12);
                 }
                 
                 // Add coordinate axes
@@ -2528,8 +2551,13 @@ function renderSkewLines3DCard() {
                     `⑥ Triple product = P₂P₁ · (d₁ × d₂)`,
                     `   = ${fmt(diffX)}·${fmt(crossX)} + ${fmt(diffY)}·${fmt(crossY)} + ${fmt(diffZ)}·${fmt(crossZ)}`,
                     `   = ${fmt(tripleProduct)}`,
-                    `⑦ Shortest distance = |triple product| / |d₁ × d₂|`,
-                    `   = |${fmt(tripleProduct)}| / ${fmt(crossMag)} = ${fmt(shortestDist)}`,
+                    ...(isParallelSkew ? [
+                        `⑦ Lines are parallel (d₁ × d₂ = 0), so use d = |P₂P₁ × d₁| / |d₁|`,
+                        `   = ${fmt(shortestDist)}`
+                    ] : [
+                        `⑦ Shortest distance = |triple product| / |d₁ × d₂|`,
+                        `   = |${fmt(tripleProduct)}| / ${fmt(crossMag)} = ${fmt(shortestDist)}`
+                    ]),
                     `⑧ Since lines are ${crossMag > 1e-8 ? 'not parallel' : 'parallel'} and ${Math.abs(tripleProduct) > 1e-8 ? 'not coplanar' : 'coplanar'},`,
                     `   these are ${Math.abs(tripleProduct) > 1e-8 && crossMag > 1e-8 ? 'SKEW LINES' : 'intersecting or parallel lines'}`
                 ];
@@ -3142,7 +3170,7 @@ function renderPlaneIntersectionCard() {
                     `⑥ Find a point on the line: Solve plane equations with z = 0 (or other assumption)`,
                     `   • Point P₀ = (${fmt(pointX)}, ${fmt(pointY)}, ${fmt(pointZ)})`,
                     `⑦ Symmetric form of the line:`,
-                    `   \\[ \\frac{x - ${fmt(pointX)}}{${fmt(unitDir.x)}} = \\frac{y - ${fmt(pointY)}}{${fmt(unitDir.y)}} = \\frac{z - ${fmt(pointZ)}}{${fmt(unitDir.z)}} \\]`,
+                    `   \\[ ${_cg3Sym(pointX, pointY, pointZ, unitDir.x, unitDir.y, unitDir.z)} \\]`,
                     `⑧ Parametric form:`,
                     `   • x = ${fmt(pointX)} + ${fmt(unitDir.x)}t`,
                     `   • y = ${fmt(pointY)} + ${fmt(unitDir.y)}t`,
@@ -3156,7 +3184,7 @@ function renderPlaneIntersectionCard() {
                     </div>`
                 ).join('');
                 
-                resultDiv.innerHTML = `\\( \\frac{x - ${fmt(pointX)}}{${fmt(unitDir.x)}} = \\frac{y - ${fmt(pointY)}}{${fmt(unitDir.y)}} = \\frac{z - ${fmt(pointZ)}}{${fmt(unitDir.z)}} \\)`;
+                resultDiv.innerHTML = `\\( ${_cg3Sym(pointX, pointY, pointZ, unitDir.x, unitDir.y, unitDir.z)} \\)`;
                 
                 if (typeof renderLatex === 'function') renderLatex();
                 if (typeof attachStepsToggle === 'function') attachStepsToggle();
@@ -3379,7 +3407,7 @@ function renderOptimizationDistanceCard() {
                 const r = parseFloat(document.getElementById('optCircleR').value);
                 
                 const centerDist = Math.sqrt((qx - h)*(qx - h) + (qy - k)*(qy - k));
-                const minDist = Math.max(0, centerDist - r);
+                const minDist = Math.abs(centerDist - r);
                 const maxDist = centerDist + r;
                 
                 // Generate circle points
@@ -3390,8 +3418,8 @@ function renderOptimizationDistanceCard() {
                 
                 // Find closest and farthest points on circle
                 const angle = Math.atan2(qy - k, qx - h);
-                const closestPoint = {x: h + r * Math.cos(angle), y: k + r * Math.sin(angle)};
-                const farthestPoint = {x: h - r * Math.cos(angle), y: k - r * Math.sin(angle)};
+                const closestPoint = centerDist < 1e-12 ? {x: h + r, y: k} : {x: h + r * Math.cos(angle), y: k + r * Math.sin(angle)};
+                const farthestPoint = centerDist < 1e-12 ? {x: h - r, y: k} : {x: h - r * Math.cos(angle), y: k - r * Math.sin(angle)};
                 
                 datasets = [
                     { label: 'Circle', data: circlePoints, borderColor: '#2c3e50', borderWidth: 2, pointRadius: 0, showLine: true, fill: false },
@@ -3405,7 +3433,7 @@ function renderOptimizationDistanceCard() {
                     `① Point Q(${fmt(qx)}, ${fmt(qy)})`,
                     `② Circle: Center C(${fmt(h)}, ${fmt(k)}), radius r = ${fmt(r)}`,
                     `③ Distance from Q to center: d = √[(${fmt(qx)} - ${fmt(h)})² + (${fmt(qy)} - ${fmt(k)})²] = ${fmt(centerDist)}`,
-                    `④ Minimum distance = |d - r| = |${fmt(centerDist)} - ${fmt(r)}| = ${fmt(minDist)}`,
+                    `④ Minimum distance = |d - r| = |${fmt(centerDist)} - ${fmt(r)}| = ${fmt(minDist)}${centerDist < r ? ' (Q is inside the circle)' : ''}`,
                     `⑤ Maximum distance = d + r = ${fmt(centerDist)} + ${fmt(r)} = ${fmt(maxDist)}`,
                     `⑥ Closest point is along the line from center to Q: (${fmt(closestPoint.x)}, ${fmt(closestPoint.y)})`,
                     `⑦ Farthest point is in opposite direction: (${fmt(farthestPoint.x)}, ${fmt(farthestPoint.y)})`
@@ -3422,20 +3450,22 @@ function renderOptimizationDistanceCard() {
                 const c2 = parseFloat(document.getElementById('optL2C').value);
                 
                 // Check if lines are parallel
+                const n1 = Math.sqrt(a1*a1 + b1*b1), n2 = Math.sqrt(a2*a2 + b2*b2);
                 const det = a1 * b2 - a2 * b1;
-                const areParallel = Math.abs(det) < 1e-10;
+                const areParallel = Math.abs(det) < 1e-10 * Math.max(1, n1 * n2);
                 
                 let distance;
                 if (areParallel) {
-                    const norm = Math.sqrt(a1*a1 + b1*b1);
-                    distance = Math.abs(c1 - c2) / norm;
+                    // Normalise each line (same orientation of the unit normal) before comparing c
+                    const sgn = (a1*a2 + b1*b2) >= 0 ? 1 : -1;
+                    const u1 = c1 / n1, u2 = sgn * c2 / n2;
+                    distance = Math.abs(u1 - u2);
                     steps = [
                         `① Lines are PARALLEL`,
                         `   L₁: ${fmt(a1)}x + ${fmt(b1)}y + ${fmt(c1)} = 0`,
                         `   L₂: ${fmt(a2)}x + ${fmt(b2)}y + ${fmt(c2)} = 0`,
-                        `② Distance between parallel lines = |c₁ - c₂| / √(a₁² + b₁²)`,
-                        `   = |${fmt(c1)} - ${fmt(c2)}| / √(${fmt(a1*a1)} + ${fmt(b1*b1)})`,
-                        `   = ${fmt(Math.abs(c1 - c2))} / ${fmt(Math.sqrt(a1*a1 + b1*b1))} = ${fmt(distance)}`
+                        `② Normalise each line: divide by √(a² + b²) (√(a₁² + b₁²) = ${fmt(n1)}, √(a₂² + b₂²) = ${fmt(n2)})`,
+                        `③ Distance between parallel lines = |c₁/n₁ - c₂/n₂| = |${fmt(u1)} - ${fmt(u2)}| = ${fmt(distance)}`
                     ];
                     resultText = `\\text{Minimum distance} = ${fmt(distance)}`;
                 } else {
@@ -3646,6 +3676,7 @@ function renderLinearProgrammingCard() {
             const constraints = [];
             const rows = document.querySelectorAll('.constraint-row');
             for (let row of rows) {
+                if (!row.querySelector('.constraintA')) continue; // skip the non-negativity label row
                 const a = parseFloat(row.querySelector('.constraintA').value);
                 const b = parseFloat(row.querySelector('.constraintB').value);
                 const c = parseFloat(row.querySelector('.constraintC').value);
@@ -3980,6 +4011,13 @@ function renderRegressionLineCard() {
             });
             
             const denominator = n * sumX2 - sumX * sumX;
+            if (Math.abs(denominator) < 1e-10 * Math.max(1, n * sumX2)) {
+                destroyGraph();
+                stepsDiv.innerHTML = '';
+                resultDiv.innerHTML = `\\( \\text{All x-values are equal: the data lie on the vertical line } x = ${fmt(sumX / n)} \\)<br>\\( \\text{Regression of } y \\text{ on } x \\text{ is undefined (slope is infinite)} \\)`;
+                if (typeof renderLatex === 'function') renderLatex();
+                return;
+            }
             const slope = (n * sumXY - sumX * sumY) / denominator;
             const intercept = (sumY - slope * sumX) / n;
             
@@ -3989,6 +4027,8 @@ function renderRegressionLineCard() {
             const numeratorR = n * sumXY - sumX * sumY;
             const denomR = Math.sqrt((n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY));
             const r = numeratorR / denomR;
+            const rDefined = isFinite(r) && Math.abs(denomR) > 1e-12;
+            const rStr = rDefined ? fmt(r) : '\\text{undefined (all y equal: horizontal line)}';
             
             // Draw points and regression line
             const minX = Math.min(...points.map(p => p.x), -1) - 1;
@@ -4013,7 +4053,7 @@ function renderRegressionLineCard() {
                     showLine: false
                 },
                 {
-                    label: `Regression Line: y = ${fmt(slope)}x + ${fmt(intercept)}`,
+                    label: `Regression Line: y = ${fmt(slope)}x ${_cg3Sgn(intercept)}`,
                     data: linePoints,
                     borderColor: '#2c3e50',
                     borderWidth: 2,
@@ -4057,10 +4097,10 @@ function renderRegressionLineCard() {
                 `④ Intercept formula: b = (Σy - mΣx) / n`,
                 `   • b = (${fmt(sumY)} - ${fmt(slope)}·${fmt(sumX)}) / ${n}`,
                 `   • b = ${fmt(intercept)}`,
-                `⑤ Regression line: y = ${fmt(slope)}x + ${fmt(intercept)}`,
+                `⑤ Regression line: y = ${fmt(slope)}x ${_cg3Sgn(intercept)}`,
                 `⑥ Correlation coefficient r:`,
-                `   • r = ${fmt(r)}`,
-                `   • r² = ${fmt(r*r)} (${Math.round(r*r*100)}% of variance explained)`
+                rDefined ? `   • r = ${fmt(r)}` : `   • r is undefined (all y-values are equal, so the line is horizontal)`,
+                ...(rDefined ? [`   • r² = ${fmt(r*r)} (${Math.round(r*r*100)}% of variance explained)`] : [])
             ];
             
             stepsDiv.innerHTML = steps.map((txt, i) => 
@@ -4070,7 +4110,7 @@ function renderRegressionLineCard() {
                 </div>`
             ).join('');
             
-            resultDiv.innerHTML = `\\( y = ${fmt(slope)}x + ${fmt(intercept)} \\)<br>\\( r = ${fmt(r)} \\)`;
+            resultDiv.innerHTML = `\\( y = ${fmt(slope)}x ${_cg3Sgn(intercept, '-')} \\)<br>\\( r = ${rStr} \\)`;
             
             // Prediction
             const testX = parseFloat(testXInp.value);
@@ -4250,12 +4290,13 @@ function renderComputationalGeometryCard() {
                 
                 let intersectionPoint = null;
                 if (Math.abs(det) < 1e-10) {
-                    resultText = 'Lines are parallel or coincident';
+                    const onLine1 = Math.abs(a1 * q1x + b1 * q1y - c1) < 1e-9 * (1 + Math.abs(c1));
+                    resultText = onLine1 ? 'Lines are coincident (infinitely many intersection points)' : 'Lines are parallel (no intersection)';
                     steps = [
                         `① Line 1: through P₁(${fmt(p1x)}, ${fmt(p1y)}) and P₂(${fmt(p2x)}, ${fmt(p2y)})`,
                         `② Line 2: through Q₁(${fmt(q1x)}, ${fmt(q1y)}) and Q₂(${fmt(q2x)}, ${fmt(q2y)})`,
                         `③ Determinant Δ = a₁b₂ - a₂b₁ = ${fmt(det)}`,
-                        `④ Since Δ ≈ 0, lines are PARALLEL (no intersection)`
+                        onLine1 ? `④ Since Δ ≈ 0 and Q₁ lies on Line 1, the lines are COINCIDENT (infinitely many intersection points)` : `④ Since Δ ≈ 0 and Q₁ is not on Line 1, lines are PARALLEL (no intersection)`
                     ];
                 } else {
                     const x = (c1 * b2 - c2 * b1) / det;

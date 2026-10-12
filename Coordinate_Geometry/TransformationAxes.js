@@ -1231,7 +1231,7 @@ function renderRemoveXYTermCard() {
             steps.push(``);
             
             steps.push(`📍 STEP 7: New simplified equation`);
-            steps.push(`   • ${fmt(A_prime)}X² + ${fmt(C_prime)}Y² + ${fmt(D_prime)}X + ${fmt(E_prime)}Y + ${fmt(F_prime)} = 0`);
+            steps.push(`   • ${taPolyStr({A: A_prime, B: 0, C: C_prime, D: D_prime, E: E_prime, F: F_prime}, 'X', 'Y')} = 0`);
             steps.push(``);
             
             steps.push(`📍 STEP 8: Identify the conic section`);
@@ -1272,55 +1272,10 @@ function renderRemoveXYTermCard() {
                 { from: {x: yAxisStartX, y: yAxisStartY}, to: {x: yAxisEndX, y: yAxisEndY}, color: '#d44c2f', dash: [5, 5], label: "Y' axis", width: 2 }
             );
             
-            // Generate points for the conic (circle/ellipse/hyperbola)
-            const conicPoints = [];
-            
-            if (Math.abs(B) < 1e-10 && A > 0 && C > 0 && D === 0 && E === 0) {
-                // Circle/Ellipse centered at origin
-                const constant = -F;
-                if (constant > 0) {
-                    const a = Math.sqrt(constant / A);
-                    const b = Math.sqrt(constant / C);
-                    for (let t = 0; t <= 2 * Math.PI; t += 0.05) {
-                        conicPoints.push({x: a * Math.cos(t), y: b * Math.sin(t)});
-                    }
-                }
-            } else if (Math.abs(B) > 1e-10 && A === C && D === 0 && E === 0) {
-                // Hyperbola: x² - y² = constant
-                const constant = -F / A;
-                for (let x = -5; x <= 5; x += 0.1) {
-                    const ySq = x*x - constant;
-                    if (ySq >= 0) {
-                        const y = Math.sqrt(ySq);
-                        conicPoints.push({x: x, y: y});
-                        conicPoints.push({x: x, y: -y});
-                    }
-                }
-            } else {
-                // For the example 1x² + 4xy + 1y² - 4 = 0 (rotated ellipse)
-                // This is a rotated ellipse: after rotation by 45°, becomes 3X² - Y² = 4? Let's sample
-                for (let t = 0; t <= 2 * Math.PI; t += 0.05) {
-                    // Parametric form for ellipse in rotated coordinates
-                    const X = 2 * Math.cos(t);
-                    const Y = 2 * Math.sin(t);
-                    // Transform back to original coordinates
-                    const x = X * cosTheta - Y * sinTheta;
-                    const y = X * sinTheta + Y * cosTheta;
-                    conicPoints.push({x: x, y: y});
-                }
-            }
-            
+            // Plot the real conic: as given (x, y) and in the rotated axes (X, Y)
             const datasets = [
-                {
-                    label: 'Original Conic',
-                    data: conicPoints,
-                    backgroundColor: 'transparent',
-                    borderColor: '#1f7f6a',
-                    borderWidth: 2,
-                    pointRadius: 0,
-                    showLine: true,
-                    fill: false
-                }
+                taImplicitDataset({A, B, C, D, E, F}, minX, maxX, minY, maxY, '#1f7f6a', 'Original conic (x, y)'),
+                taImplicitDataset({A: A_prime, B: 0, C: C_prime, D: D_prime, E: E_prime, F: F_prime}, minX, maxX, minY, maxY, '#d44c2f', 'Same conic in rotated axes (X, Y)', [6, 4])
             ];
             
             destroyGraph();
@@ -1349,7 +1304,7 @@ function renderRemoveXYTermCard() {
                 </div>`
             ).join('');
             
-            resultDiv.innerHTML = `\\( ${fmt(A_prime)}X² + ${fmt(C_prime)}Y² + ${fmt(D_prime)}X + ${fmt(E_prime)}Y + ${fmt(F_prime)} = 0 \\)`;
+            resultDiv.innerHTML = `\\( ${taPolyStr({A: A_prime, B: 0, C: C_prime, D: D_prime, E: E_prime, F: F_prime}, 'X', 'Y')} = 0 \\)`;
             
             renderLatex();
             attachStepsToggle();
@@ -1752,7 +1707,7 @@ function renderFindOriginalAfterTranslationCard() {
                 `📍 STEP 1: Understanding the problem`,
                 `   • New origin O' = (${fmt(h)}, ${fmt(k)}) in old coordinates`,
                 `   • New equation is given in terms of (X, Y):`,
-                `     ${equation} = 0`,
+                `     ${/=/.test(equation) ? equation : equation + ' = 0'}`,
                 `   • Relationship: X = x - h, Y = y - k`,
                 ``,
                 `📍 STEP 2: Substitute X = x - h and Y = y - k`,
@@ -1764,57 +1719,15 @@ function renderFindOriginalAfterTranslationCard() {
                 `   • Replace every Y with (y - ${fmt(k)})`,
             ];
             
-            // Handle different equation types
-            if (equation.includes('X^2 + Y^2') || equation.includes('X² + Y²')) {
-                // Circle equation: X² + Y² = r²
-                const rMatch = equation.match(/=\s*(\d+)/);
-                const rSq = rMatch ? parseFloat(rMatch[1]) : 9;
-                originalEquation = `(x - ${fmt(h)})² + (y - ${fmt(k)})² = ${fmt(rSq)}`;
-                
-                steps.push(`   • Original: X² + Y² = ${fmt(rSq)}`);
-                steps.push(`   • Substitute: (x - ${fmt(h)})² + (y - ${fmt(k)})² = ${fmt(rSq)}`);
-                steps.push(`   • Expand: x² - ${fmt(2*h)}x + ${fmt(h*h)} + y² - ${fmt(2*k)}y + ${fmt(k*k)} = ${fmt(rSq)}`);
-                steps.push(`   • Final equation: x² + y² - ${fmt(2*h)}x - ${fmt(2*k)}y + ${fmt(h*h + k*k - rSq)} = 0`);
-                
-            } else if (equation.includes('X') && equation.includes('Y') && !equation.includes('^2') && !equation.includes('²')) {
-                // Linear equation: aX + bY + c = 0
-                let a = 0, b = 0, c = 0;
-                
-                const xMatch = equation.match(/([+-]?\d*\.?\d*)\s*X(?!\^)/);
-                const yMatch = equation.match(/([+-]?\d*\.?\d*)\s*Y(?!\^)/);
-                
-                if (xMatch) {
-                    let val = xMatch[1];
-                    if (val === '+' || val === '') a = 1;
-                    else if (val === '-') a = -1;
-                    else a = parseFloat(val);
-                }
-                if (yMatch) {
-                    let val = yMatch[1];
-                    if (val === '+' || val === '') b = 1;
-                    else if (val === '-') b = -1;
-                    else b = parseFloat(val);
-                }
-                
-                let remaining = equation.replace(/[+-]?\d*\.?\d*\s*[XY](?!\^)/g, '').replace(/\s/g, '');
-                if (remaining && remaining !== '=0') {
-                    const constMatch = remaining.match(/([+-]?\d*\.?\d*)/);
-                    if (constMatch) c = parseFloat(constMatch[0]);
-                }
-                
-                originalEquation = `${fmt(a)}(x - ${fmt(h)}) + ${fmt(b)}(y - ${fmt(k)}) + ${fmt(c)} = 0`;
-                const expanded = `${fmt(a)}x + ${fmt(b)}y + (${fmt(-a*h - b*k + c)}) = 0`;
-                
-                steps.push(`   • Original: ${fmt(a)}X + ${fmt(b)}Y + ${fmt(c)} = 0`);
-                steps.push(`   • Substitute: ${fmt(a)}(x - ${fmt(h)}) + ${fmt(b)}(y - ${fmt(k)}) + ${fmt(c)} = 0`);
-                steps.push(`   • Expand: ${fmt(a)}x - ${fmt(a*h)} + ${fmt(b)}y - ${fmt(b*k)} + ${fmt(c)} = 0`);
-                steps.push(`   • Simplify: ${fmt(a)}x + ${fmt(b)}y + (${fmt(-a*h - b*k + c)}) = 0`);
-                steps.push(`   • Original equation: ${expanded}`);
-                
-            } else {
-                originalEquation = equation.replace(/X/g, `(x - ${fmt(h)})`).replace(/Y/g, `(y - ${fmt(k)})`);
-                steps.push(`   • ${equation.replace(/X/g, `(x - ${fmt(h)})`).replace(/Y/g, `(y - ${fmt(k)})`)} = 0`);
-            }
+            const P = taParsePoly(equation);
+            const origPoly = taSubst(P, [1, 0, -h], [0, 1, -k]);
+            const shX = h >= 0 ? `(x - ${fmt(h)})` : `(x + ${fmt(-h)})`;
+            const shY = k >= 0 ? `(y - ${fmt(k)})` : `(y + ${fmt(-k)})`;
+            steps.push(`   • F(X, Y) = ${taPolyStr(P, 'X', 'Y')}`);
+            steps.push(`   • Replace X by ${shX} and Y by ${shY}`);
+            steps.push(`   • Expand and collect like terms:`);
+            steps.push(`   • ${taPolyStr(origPoly, 'x', 'y')} = 0`);
+            originalEquation = `${taPolyStr(origPoly, 'x', 'y')} = 0`;
             
             steps.push(``);
             steps.push(`📍 STEP 4: Interpretation`);
@@ -1854,27 +1767,9 @@ function renderFindOriginalAfterTranslationCard() {
                 {x: h, y: k, label: `O'(${fmt(h)}, ${fmt(k)})`}
             ];
             
-            // Draw original curve
-            const curvePoints = [];
-            const centerX = h;
-            const centerY = k;
-            const radius = 3;
-            for (let t = 0; t <= 2 * Math.PI; t += 0.05) {
-                curvePoints.push({x: centerX + radius * Math.cos(t), y: centerY + radius * Math.sin(t)});
-            }
-            
-            const datasets = [
-                {
-                    label: 'Original Curve',
-                    data: curvePoints,
-                    backgroundColor: 'transparent',
-                    borderColor: '#1f7f6a',
-                    borderWidth: 2,
-                    pointRadius: 0,
-                    showLine: true,
-                    fill: false
-                }
-            ];
+            // Draw the real original curve (sampled from the equation)
+            const origCurve = taImplicitDataset(taSubst(taParsePoly(equation), [1, 0, -h], [0, 1, -k]), minX, maxX, minY, maxY, '#1f7f6a', 'Original Curve');
+            const datasets = [origCurve];
             
             destroyGraph();
             const ctx = document.getElementById('coordinateGraph').getContext('2d');
@@ -1902,7 +1797,7 @@ function renderFindOriginalAfterTranslationCard() {
                 </div>`
             ).join('');
             
-            resultDiv.innerHTML = `\\( \\text{Original equation: } ${originalEquation} = 0 \\)`;
+            resultDiv.innerHTML = `\\( \\text{Original equation: } ${originalEquation} \\)`;
             
             renderLatex();
             attachStepsToggle();
@@ -2036,44 +1931,20 @@ function renderFindOriginalAfterRotationCard() {
                 `     Y = -x sinθ + y cosθ`,
                 ``,
                 `📍 STEP 2: New equation in (X, Y) coordinates`,
-                `   • ${equation} = 0`,
+                `   • ${/=/.test(equation) ? equation : equation + ' = 0'}`,
                 ``,
                 `📍 STEP 3: Substitute inverse rotation formulas`,
             ];
             
-            if (equation.includes('X^2 + Y^2') || equation.includes('X² + Y²')) {
-                // Circle: X² + Y² = r² is invariant under rotation
-                const rMatch = equation.match(/=\s*(\d+)/);
-                const rSq = rMatch ? parseFloat(rMatch[1]) : 25;
-                originalEquation = `x² + y² = ${fmt(rSq)}`;
-                
-                steps.push(`   • Original: X² + Y² = ${fmt(rSq)}`);
-                steps.push(`   • Substitute: (x cosθ + y sinθ)² + (-x sinθ + y cosθ)² = ${fmt(rSq)}`);
-                steps.push(`   • Expand: (x²cos²θ + 2xy cosθ sinθ + y²sin²θ) + (x²sin²θ - 2xy cosθ sinθ + y²cos²θ) = ${fmt(rSq)}`);
-                steps.push(`   • Simplify: x²(cos²θ + sin²θ) + y²(sin²θ + cos²θ) = ${fmt(rSq)}`);
-                steps.push(`   • Since cos²θ + sin²θ = 1, we get: x² + y² = ${fmt(rSq)}`);
-                steps.push(`   • The circle is invariant under rotation!`);
-                
-            } else if (equation.includes('XY')) {
-                // Hyperbola: XY = constant
-                const cMatch = equation.match(/=\s*(\d+)/);
-                const c = cMatch ? parseFloat(cMatch[1]) : 1;
-                
-                const A = cosTheta * sinTheta;
-                const B = cosTheta * cosTheta - sinTheta * sinTheta;
-                const C = -cosTheta * sinTheta;
-                
-                originalEquation = `${fmt(A)}x² + ${fmt(B)}xy + ${fmt(C)}y² = ${fmt(c)}`;
-                
-                steps.push(`   • Original: XY = ${fmt(c)}`);
-                steps.push(`   • Substitute: (x cosθ + y sinθ)(-x sinθ + y cosθ) = ${fmt(c)}`);
-                steps.push(`   • Expand: -x² cosθ sinθ + xy cos²θ - xy sin²θ + y² cosθ sinθ = ${fmt(c)}`);
-                steps.push(`   • Simplify: ${fmt(A)}x² + ${fmt(B)}xy + ${fmt(C)}y² = ${fmt(c)}`);
-                
-            } else {
-                originalEquation = equation.replace(/X/g, `(${fmt(cosTheta)}x + ${fmt(sinTheta)}y)`).replace(/Y/g, `(-${fmt(sinTheta)}x + ${fmt(cosTheta)}y)`);
-                steps.push(`   • Substitute X and Y: ${originalEquation} = 0`);
+            const P = taParsePoly(equation);
+            const origPoly = taSubst(P, [cosTheta, sinTheta, 0], [-sinTheta, cosTheta, 0]);
+            steps.push(`   • F(X, Y) = ${taPolyStr(P, 'X', 'Y')}`);
+            steps.push(`   • Put X = x(${fmt(cosTheta)}) + y(${fmt(sinTheta)}), Y = x(${fmt(-sinTheta)}) + y(${fmt(cosTheta)}) and expand`);
+            if (Math.abs(P.B) < 1e-12 && Math.abs(P.A - P.C) < 1e-12 && Math.abs(P.D) < 1e-12 && Math.abs(P.E) < 1e-12) {
+                steps.push(`   • Since cos²θ + sin²θ = 1, X² + Y² = x² + y²: a circle centred at the origin is invariant under rotation`);
             }
+            steps.push(`   • ${taPolyStr(origPoly, 'x', 'y', true)}`);
+            originalEquation = taPolyStr(origPoly, 'x', 'y', true);
             
             steps.push(``);
             steps.push(`📍 STEP 4: Interpretation`);
@@ -2117,25 +1988,9 @@ function renderFindOriginalAfterRotationCard() {
                 { from: {x: yAxisStartX, y: yAxisStartY}, to: {x: yAxisEndX, y: yAxisEndY}, color: '#d44c2f', dash: [5, 5], label: "Y' axis", width: 2 }
             );
             
-            // Draw original curve (circle)
-            const curvePoints = [];
-            const radius = 5;
-            for (let t = 0; t <= 2 * Math.PI; t += 0.05) {
-                curvePoints.push({x: radius * Math.cos(t), y: radius * Math.sin(t)});
-            }
-            
-            const datasets = [
-                {
-                    label: 'Original Curve',
-                    data: curvePoints,
-                    backgroundColor: 'transparent',
-                    borderColor: '#1f7f6a',
-                    borderWidth: 2,
-                    pointRadius: 0,
-                    showLine: true,
-                    fill: false
-                }
-            ];
+            // Draw the real original curve (sampled from the equation)
+            const origCurve = taImplicitDataset(taSubst(taParsePoly(equation), [cosTheta, sinTheta, 0], [-sinTheta, cosTheta, 0]), minX, maxX, minY, maxY, '#1f7f6a', 'Original Curve');
+            const datasets = [origCurve];
             
             destroyGraph();
             const ctx = document.getElementById('coordinateGraph').getContext('2d');
@@ -2163,7 +2018,7 @@ function renderFindOriginalAfterRotationCard() {
                 </div>`
             ).join('');
             
-            resultDiv.innerHTML = `\\( \\text{Original equation: } ${originalEquation} = 0 \\)`;
+            resultDiv.innerHTML = `\\( \\text{Original equation: } ${originalEquation} \\)`;
             
             renderLatex();
             attachStepsToggle();
@@ -2841,71 +2696,8 @@ function renderChangeAxesSymmetryCard() {
     }
 
     function parseQuadraticEquation(equation) {
-        // Parse: Ax² + Bxy + Cy² + Dx + Ey + F = 0
-        let A = 0, B = 0, C = 0, D = 0, E = 0, F = 0;
-        
-        // Remove spaces
-        let eq = equation.replace(/\s/g, '');
-        
-        // Handle various notations
-        eq = eq.replace(/²/g, '^2');
-        eq = eq.replace(/=/g, '-');
-        
-        // Pattern matching for terms
-        const x2Match = eq.match(/([+-]?\d*\.?\d*)x\^2/);
-        const xyMatch = eq.match(/([+-]?\d*\.?\d*)xy/);
-        const y2Match = eq.match(/([+-]?\d*\.?\d*)y\^2/);
-        const xMatch = eq.match(/([+-]?\d*\.?\d*)x(?!\^)(?![xy])/);
-        const yMatch = eq.match(/([+-]?\d*\.?\d*)y(?!\^)(?![xy])/);
-        
-        if (x2Match) {
-            let val = x2Match[1];
-            if (val === '+' || val === '') A = 1;
-            else if (val === '-') A = -1;
-            else A = parseFloat(val);
-        }
-        if (xyMatch) {
-            let val = xyMatch[1];
-            if (val === '+' || val === '') B = 1;
-            else if (val === '-') B = -1;
-            else B = parseFloat(val);
-        }
-        if (y2Match) {
-            let val = y2Match[1];
-            if (val === '+' || val === '') C = 1;
-            else if (val === '-') C = -1;
-            else C = parseFloat(val);
-        }
-        if (xMatch) {
-            let val = xMatch[1];
-            if (val === '+' || val === '') D = 1;
-            else if (val === '-') D = -1;
-            else D = parseFloat(val);
-        }
-        if (yMatch) {
-            let val = yMatch[1];
-            if (val === '+' || val === '') E = 1;
-            else if (val === '-') E = -1;
-            else E = parseFloat(val);
-        }
-        
-        // Find constant term
-        let remaining = eq;
-        remaining = remaining.replace(/[+-]?\d*\.?\d*x\^2/g, '');
-        remaining = remaining.replace(/[+-]?\d*\.?\d*xy/g, '');
-        remaining = remaining.replace(/[+-]?\d*\.?\d*y\^2/g, '');
-        remaining = remaining.replace(/[+-]?\d*\.?\d*x(?!\^)/g, '');
-        remaining = remaining.replace(/[+-]?\d*\.?\d*y(?!\^)/g, '');
-        remaining = remaining.replace(/[+-]?0/g, '');
-        
-        if (remaining && remaining !== '') {
-            const constMatch = remaining.match(/([+-]?\d*\.?\d*)/);
-            if (constMatch && constMatch[1] !== '') {
-                F = -parseFloat(constMatch[1]);
-            }
-        }
-        
-        return { A, B, C, D, E, F };
+        // Shared robust parser (see taParsePoly): Ax² + Bxy + Cy² + Dx + Ey + F = 0, '=' sides handled
+        return taParsePoly(equation);
     }
 
     function update() {
@@ -2932,177 +2724,143 @@ function renderChangeAxesSymmetryCard() {
             
             steps = [
                 `📍 STEP 1: Original equation`,
-                `   • ${equation} = 0`,
+                `   • ${/=/.test(equation) ? equation : equation + ' = 0'}`,
                 `   • Coefficients: A = ${fmt(A)}, B = ${fmt(B)}, C = ${fmt(C)}, D = ${fmt(D)}, E = ${fmt(E)}, F = ${fmt(F)}`,
                 ``,
             ];
             
-            if (type === 'xy') {
-                // Eliminate XY term by rotation
-                if (Math.abs(B) < 1e-10) {
-                    transformedEquation = equation;
-                    steps.push(`📍 STEP 2: No XY term present, equation is already symmetric`);
-                } else {
-                    const cot2theta = (A - C) / B;
-                    let thetaRad;
-                    
-                    steps.push(`📍 STEP 2: Calculate rotation angle to eliminate XY term`);
-                    steps.push(`   • Formula: cot 2θ = (A - C)/B = (${fmt(A)} - ${fmt(C)})/${fmt(B)} = ${fmt(cot2theta)}`);
-                    
-                    if (Math.abs(cot2theta) > 1e10) {
-                        thetaRad = Math.PI / 4;
-                        thetaDeg = 45;
-                        steps.push(`   • Since |cot 2θ| is very large, tan 2θ ≈ 0, so θ = 45°`);
-                    } else {
-                        const tan2theta = 1 / cot2theta;
-                        const twoTheta = Math.atan(tan2theta);
-                        thetaRad = twoTheta / 2;
-                        thetaDeg = thetaRad * 180 / Math.PI;
-                        steps.push(`   • tan 2θ = 1/cot 2θ = ${fmt(tan2theta)}`);
-                        steps.push(`   • 2θ = arctan(${fmt(tan2theta)}) = ${fmt(twoTheta.toFixed(4))} rad = ${fmt(twoTheta * 180 / Math.PI)}°`);
-                        steps.push(`   • θ = ${fmt(thetaDeg)}°`);
-                    }
-                    
-                    const cosTheta = Math.cos(thetaRad);
-                    const sinTheta = Math.sin(thetaRad);
-                    const cosSq = cosTheta * cosTheta;
-                    const sinSq = sinTheta * sinTheta;
-                    const cosSin = cosTheta * sinTheta;
-                    
-                    // New coefficients after rotation
-                    const A_prime = A*cosSq + B*cosSin + C*sinSq;
-                    const B_prime = -2*A*cosSin + B*(cosSq - sinSq) + 2*C*cosSin;
-                    const C_prime = A*sinSq - B*cosSin + C*cosSq;
-                    const D_prime = D*cosTheta + E*sinTheta;
-                    const E_prime = -D*sinTheta + E*cosTheta;
-                    const F_prime = F;
-                    
-                    steps.push(``);
-                    steps.push(`📍 STEP 3: Apply rotation by θ = ${fmt(thetaDeg)}°`);
-                    steps.push(`   • cos θ = ${fmt(cosTheta)}, sin θ = ${fmt(sinTheta)}`);
-                    steps.push(`   • New coefficients after rotation:`);
-                    steps.push(`     A' = ${fmt(A_prime)}`);
-                    steps.push(`     B' = ${fmt(B_prime)} (should be 0)`);
-                    steps.push(`     C' = ${fmt(C_prime)}`);
-                    steps.push(`     D' = ${fmt(D_prime)}`);
-                    steps.push(`     E' = ${fmt(E_prime)}`);
-                    steps.push(`     F' = ${fmt(F_prime)}`);
-                    
-                    if (Math.abs(B_prime) < 1e-10) {
-                        steps.push(`   • ✓ XY term eliminated!`);
-                    }
-                    
-                    // Now translate to remove linear terms if needed
-                    if (Math.abs(D_prime) > 1e-10 || Math.abs(E_prime) > 1e-10) {
-                        steps.push(``);
-                        steps.push(`📍 STEP 4: Linear terms present. Find center to eliminate them.`);
-                        
-                        // Solve for center (h,k) where 2A'h + D' = 0 and 2C'k + E' = 0 (for rotated ellipse)
-                        const h = -D_prime / (2 * A_prime);
-                        const k = -E_prime / (2 * C_prime);
-                        const F_double_prime = F_prime + A_prime*h*h + C_prime*k*k;
-                        
-                        steps.push(`   • Center: (h, k) = (${fmt(h)}, ${fmt(k)})`);
-                        steps.push(`   • After translation: ${fmt(A_prime)}X² + ${fmt(C_prime)}Y² + ${fmt(F_double_prime)} = 0`);
-                        
-                        transformedEquation = `${fmt(A_prime)}X² + ${fmt(C_prime)}Y² = ${fmt(-F_double_prime)}`;
-                    } else {
-                        transformedEquation = `${fmt(A_prime)}X² + ${fmt(C_prime)}Y² + ${fmt(F_prime)} = 0`;
-                    }
-                }
-                
-                steps.push(``);
-                steps.push(`📍 STEP 5: Final symmetric equation`);
-                steps.push(`   • ${transformedEquation} = 0`);
-                steps.push(`   • This equation is symmetric about both X and Y axes`);
-                
-            } else if (type === 'center') {
-                // Translate to remove linear terms (center at origin)
-                if (Math.abs(A) < 1e-10 && Math.abs(C) < 1e-10) {
-                    steps.push(`📍 STEP 2: Equation is not a central conic (parabola type)`);
-                    transformedEquation = equation;
-                } else {
-                    // Solve for center
-                    const det = 4*A*C - B*B;
-                    if (Math.abs(det) < 1e-10) {
-                        steps.push(`📍 STEP 2: No unique center (parabola)`);
-                        transformedEquation = equation;
-                    } else {
-                        const h = (B*E - 2*C*D) / det;
-                        const k = (B*D - 2*A*E) / det;
-                        const F_prime = F + D*h + E*k + A*h*h + B*h*k + C*k*k;
-                        
-                        steps.push(`📍 STEP 2: Find center (h, k)`);
-                        steps.push(`   • h = (BE - 2CD)/(4AC - B²) = ${fmt(h)}`);
-                        steps.push(`   • k = (BD - 2AE)/(4AC - B²) = ${fmt(k)}`);
-                        steps.push(``);
-                        steps.push(`📍 STEP 3: Translate origin to center`);
-                        steps.push(`   • After translation: ${fmt(A)}X² + ${fmt(B)}XY + ${fmt(C)}Y² + ${fmt(F_prime)} = 0`);
-                        steps.push(`   • Linear terms eliminated!`);
-                        
-                        transformedEquation = `${fmt(A)}X² + ${fmt(B)}XY + ${fmt(C)}Y² + ${fmt(F_prime)} = 0`;
-                    }
-                }
-                
-            } else {
-                // Symmetric about a specific axis
-                const axisAngle = validateNumber(axisAngleInp.value, 'θ');
-                const axisRad = axisAngle * Math.PI / 180;
-                
-                steps.push(`📍 STEP 2: Rotate axes to make the given axis the X-axis`);
-                steps.push(`   • Axis of symmetry: θ = ${fmt(axisAngle)}° from x-axis`);
-                steps.push(`   • Rotate by -${fmt(axisAngle)}° to align the axis with X-axis`);
-                
-                const cosTheta = Math.cos(axisRad);
-                const sinTheta = Math.sin(axisRad);
-                
-                // Inverse rotation to find coordinates
-                // X = x cosθ + y sinθ, Y = -x sinθ + y cosθ
-                // But we want to substitute into original equation
-                
-                transformedEquation = equation.replace(/x/g, `(${fmt(cosTheta)}X - ${fmt(sinTheta)}Y)`).replace(/y/g, `(${fmt(sinTheta)}X + ${fmt(cosTheta)}Y)`);
-                
-                steps.push(`   • After substitution, the equation should become symmetric about the X-axis`);
-                steps.push(`   • This means the equation should have only even powers of Y`);
-            }
-            
-            // Draw the graph
             const minX = -8, maxX = 8;
             const minY = -8, maxY = 8;
-            
-            // Draw original curve (circle/ellipse approximation)
-            const curvePoints = [];
-            for (let t = 0; t <= 2 * Math.PI; t += 0.05) {
-                // For a rotated ellipse: x² + 4xy + y² = 8
-                // This is a rotated ellipse with axes at 45°
-                const X = 2 * Math.cos(t);
-                const Y = Math.sqrt(2) * Math.sin(t);
-                // Rotate by 45°: x = X cos45 - Y sin45, y = X sin45 + Y cos45
-                const cos45 = Math.cos(Math.PI/4);
-                const sin45 = Math.sin(Math.PI/4);
-                const x = X * cos45 - Y * sin45;
-                const y = X * sin45 + Y * cos45;
-                curvePoints.push({x: x, y: y});
-            }
-            
-            const datasets = [
-                {
-                    label: 'Original Curve',
-                    data: curvePoints,
-                    backgroundColor: 'transparent',
-                    borderColor: '#1f7f6a',
-                    borderWidth: 2,
-                    pointRadius: 0,
-                    showLine: true,
-                    fill: false
-                }
-            ];
-            
-            // Draw axes
+            const eps = 1e-10;
             const axes = [
                 { from: {x: minX, y: 0}, to: {x: maxX, y: 0}, color: '#2c3e50', dash: [], label: 'x-axis', width: 1.5 },
                 { from: {x: 0, y: minY}, to: {x: 0, y: maxY}, color: '#2c3e50', dash: [], label: 'y-axis', width: 1.5 }
             ];
+            const specialPoints = [];
+            const addFrame = (ox, oy, c, s) => {
+                axes.push(
+                    { from: {x: ox - 12*c, y: oy - 12*s}, to: {x: ox + 12*c, y: oy + 12*s}, color: '#d44c2f', dash: [5, 5], label: "new X axis", width: 2 },
+                    { from: {x: ox + 12*s, y: oy - 12*c}, to: {x: ox - 12*s, y: oy + 12*c}, color: '#d44c2f', dash: [5, 5], label: "new Y axis", width: 2 }
+                );
+            };
+            
+            if (type === 'xy') {
+                let Pr = {A, B, C, D, E, F};
+                let cosT = 1, sinT = 0;
+                if (Math.abs(B) < eps) {
+                    steps.push(`📍 STEP 2: B = 0, so there is no XY term and no rotation is needed`);
+                } else {
+                    // tan 2θ = B/(A - C)  (equivalently cot 2θ = (A - C)/B)
+                    const thetaRad = 0.5 * Math.atan2(B, A - C);
+                    thetaDeg = thetaRad * 180 / Math.PI;
+                    cosT = Math.cos(thetaRad);
+                    sinT = Math.sin(thetaRad);
+                    steps.push(`📍 STEP 2: Calculate rotation angle to eliminate XY term`);
+                    steps.push(`   • Formula: cot 2θ = (A - C)/B = (${fmt(A)} - ${fmt(C)})/${fmt(B)} = ${fmt((A - C) / B)}`);
+                    steps.push(`   • 2θ = ${fmt(2 * thetaDeg)}°, so θ = ${fmt(thetaDeg)}°`);
+                    steps.push(``);
+                    const cc = cosT*cosT, ss = sinT*sinT, cs = cosT*sinT;
+                    Pr = {
+                        A: A*cc + B*cs + C*ss,
+                        B: 0,
+                        C: A*ss - B*cs + C*cc,
+                        D: D*cosT + E*sinT,
+                        E: -D*sinT + E*cosT,
+                        F: F
+                    };
+                    steps.push(`📍 STEP 3: Apply rotation x = X cosθ - Y sinθ, y = X sinθ + Y cosθ`);
+                    steps.push(`   • cos θ = ${fmt(cosT)}, sin θ = ${fmt(sinT)}`);
+                    steps.push(`   • A' = ${fmt(Pr.A)}, B' = 0, C' = ${fmt(Pr.C)}, D' = ${fmt(Pr.D)}, E' = ${fmt(Pr.E)}, F' = ${fmt(Pr.F)}`);
+                    steps.push(`   • ✓ XY term eliminated!`);
+                }
+                let cx = 0, cy = 0;
+                let np = Pr;
+                if (Math.abs(Pr.D) > eps || Math.abs(Pr.E) > eps) {
+                    // Complete the square in each variable that has a squared term
+                    const hasX2 = Math.abs(Pr.A) > eps, hasY2 = Math.abs(Pr.C) > eps;
+                    if (hasX2 || hasY2) {
+                        cx = hasX2 ? -Pr.D / (2 * Pr.A) : 0;
+                        cy = hasY2 ? -Pr.E / (2 * Pr.C) : 0;
+                        np = {
+                            A: Pr.A, B: 0, C: Pr.C,
+                            D: hasX2 ? 0 : Pr.D,
+                            E: hasY2 ? 0 : Pr.E,
+                            F: Pr.F - (hasX2 ? Pr.D*Pr.D / (4*Pr.A) : 0) - (hasY2 ? Pr.E*Pr.E / (4*Pr.C) : 0)
+                        };
+                        steps.push(``);
+                        steps.push(`📍 STEP 4: Linear terms are still present, so translate the origin (complete the square)`);
+                        steps.push(`   • New origin in the rotated axes: (${fmt(cx)}, ${fmt(cy)})`);
+                        steps.push(`   • Constant becomes ${fmt(np.F)}`);
+                    }
+                }
+                transformedEquation = taPolyStr(np, 'X', 'Y', true);
+                steps.push(``);
+                steps.push(`📍 STEP 5: Final equation`);
+                steps.push(`   • ${transformedEquation}`);
+                if (Math.abs(np.D) < eps && Math.abs(np.E) < eps && Math.abs(np.B) < eps) {
+                    steps.push(Math.abs(B) < eps && cosT === 1 && cx === 0 && cy === 0
+                        ? `   • No XY term and no linear terms: the curve is already symmetric about both coordinate axes`
+                        : `   • Only X², Y² and constant terms remain: symmetric about both new axes`);
+                } else {
+                    steps.push(`   • A parabola has no centre; it is symmetric about its own axis only`);
+                }
+                const ox = cx * cosT - cy * sinT, oy = cx * sinT + cy * cosT;
+                if (Math.abs(thetaDeg) > eps || Math.abs(ox) > eps || Math.abs(oy) > eps) {
+                    addFrame(ox, oy, cosT, sinT);
+                    if (Math.abs(ox) > eps || Math.abs(oy) > eps) specialPoints.push({x: ox, y: oy, label: `O'(${fmt(ox)}, ${fmt(oy)})`});
+                }
+                
+            } else if (type === 'center') {
+                const det = 4*A*C - B*B;
+                if (Math.abs(det) < eps) {
+                    steps.push(`📍 STEP 2: 4AC - B² = 0, so there is no unique centre (parabola or parallel lines)`);
+                    transformedEquation = taPolyStr(coeffs, 'x', 'y');
+                    transformedEquation += ' = 0';
+                } else {
+                    const h = (B*E - 2*C*D) / det;
+                    const k = (B*D - 2*A*E) / det;
+                    const F_prime = F + (D*h + E*k) / 2;
+                    steps.push(`📍 STEP 2: Find centre (h, k)`);
+                    steps.push(`   • h = (BE - 2CD)/(4AC - B²) = ${fmt(h)}`);
+                    steps.push(`   • k = (BD - 2AE)/(4AC - B²) = ${fmt(k)}`);
+                    steps.push(``);
+                    if (Math.abs(h) < eps && Math.abs(k) < eps) {
+                        steps.push(`📍 STEP 3: The centre is already the origin, nothing to translate`);
+                    } else {
+                        steps.push(`📍 STEP 3: Translate origin to the centre (x = X + h, y = Y + k)`);
+                        steps.push(`   • Linear terms vanish; the constant becomes F' = F + (Dh + Ek)/2 = ${fmt(F_prime)}`);
+                    }
+                    const np = {A, B, C, D: 0, E: 0, F: F_prime};
+                    transformedEquation = taPolyStr(np, 'X', 'Y', true);
+                    steps.push(`   • ${transformedEquation}`);
+                    if (Math.abs(h) > eps || Math.abs(k) > eps) {
+                        axes.push(
+                            { from: {x: minX, y: k}, to: {x: maxX, y: k}, color: '#d44c2f', dash: [5, 5], label: "new X axis", width: 2 },
+                            { from: {x: h, y: minY}, to: {x: h, y: maxY}, color: '#d44c2f', dash: [5, 5], label: "new Y axis", width: 2 }
+                        );
+                        specialPoints.push({x: h, y: k, label: `O'(${fmt(h)}, ${fmt(k)})`});
+                    }
+                }
+                
+            } else {
+                const axisAngle = validateNumber(axisAngleInp.value, 'θ');
+                const axisRad = axisAngle * Math.PI / 180;
+                const cosT = Math.cos(axisRad), sinT = Math.sin(axisRad);
+                steps.push(`📍 STEP 2: Rotate axes so the given axis becomes the X-axis`);
+                steps.push(`   • Axis of symmetry: θ = ${fmt(axisAngle)}° from the x-axis`);
+                steps.push(`   • Substitute x = X cosθ - Y sinθ, y = X sinθ + Y cosθ`);
+                const np = taSubst(coeffs, [cosT, -sinT, 0], [sinT, cosT, 0]);
+                transformedEquation = taPolyStr(np, 'X', 'Y', true);
+                steps.push(`   • ${transformedEquation}`);
+                if (Math.abs(np.B) < 1e-9 && Math.abs(np.E) < 1e-9) {
+                    steps.push(`   • Only even powers of Y occur: the curve IS symmetric about this axis`);
+                } else {
+                    steps.push(`   • Odd powers of Y remain (XY or Y term): the curve is NOT symmetric about this axis`);
+                }
+                addFrame(0, 0, cosT, sinT);
+            }
+            
+            const datasets = [taImplicitDataset(coeffs, minX, maxX, minY, maxY, '#1f7f6a', 'Original curve')];
             
             destroyGraph();
             const ctx = document.getElementById('coordinateGraph').getContext('2d');
@@ -3121,7 +2879,7 @@ function renderChangeAxesSymmetryCard() {
                 }
             });
             
-            drawGraph([], [], axes);
+            drawGraph([], specialPoints, axes);
             
             stepsDiv.innerHTML = steps.map((txt, i) => 
                 `<div class="step-row">
@@ -3130,7 +2888,7 @@ function renderChangeAxesSymmetryCard() {
                 </div>`
             ).join('');
             
-            resultDiv.innerHTML = `\\( \\text{Transformed equation: } ${transformedEquation} = 0 \\)`;
+            resultDiv.innerHTML = `\\( \\text{Transformed equation: } ${transformedEquation} \\)`;
             
             renderLatex();
             attachStepsToggle();
@@ -4157,6 +3915,112 @@ function renderLineEquationNewCoordinatesCard() {
     
     setTimeout(() => { update(); attachStepsToggle(); }, 50);
 }
+// ---- Shared helpers for quadratic polynomials  A x^2 + B xy + C y^2 + D x + E y + F  ----
+// Parse text such as "x^2 + 4xy + y^2 - 8 = 0", "2X + 3Y - 6 = 0", "XY = 1", "3x²-y² = 8".
+// '*' is optional, ^2 or ², implicit coefficients, both sides of '=' are handled (RHS is moved to the left).
+function taParsePoly(str) {
+    let s = String(str == null ? '' : str).toLowerCase()
+        .replace(/[−–—]/g, '-').replace(/²/g, '^2')
+        .replace(/[\s*×·]/g, '');
+    if (!s) throw new Error('Please enter an equation.');
+    const sides = s.split('=');
+    if (sides.length > 2) throw new Error('The equation can contain only one "=" sign.');
+    const p = { A: 0, B: 0, C: 0, D: 0, E: 0, F: 0 };
+    sides.forEach((side, idx) => {
+        if (side === '') throw new Error('Incomplete equation: nothing on one side of "=".');
+        side = side.replace(/[+-]{2,}/g, m => ((m.match(/-/g) || []).length % 2 ? '-' : '+'));
+        const terms = side.match(/[+-]?[^+-]+/g) || [];
+        if (terms.join('') !== side) throw new Error('Could not read the equation near "' + side + '".');
+        terms.forEach(term => {
+            const m = /^([+-]?)(\d+\.?\d*|\.\d+)?(.*)$/.exec(term);
+            let coef = (m[2] === undefined ? 1 : parseFloat(m[2])) * (m[1] === '-' ? -1 : 1) * (idx === 1 ? -1 : 1);
+            const rest = m[3];
+            if (m[2] === undefined && rest === '') throw new Error('Could not read the equation near "' + term + '".');
+            let px = 0, py = 0, pos = 0;
+            const re = /([xy])(?:\^(\d+))?/y;
+            while (pos < rest.length) {
+                re.lastIndex = pos;
+                const t = re.exec(rest);
+                if (!t) throw new Error('Could not read "' + term + '". Use only x, y, numbers, + - and ^2.');
+                const pw = t[2] === undefined ? 1 : parseInt(t[2], 10);
+                if (t[1] === 'x') px += pw; else py += pw;
+                pos = re.lastIndex;
+            }
+            if (px + py > 2) throw new Error('Only terms up to degree 2 are supported (found "' + term + '").');
+            if (px === 2) p.A += coef; else if (px === 1 && py === 1) p.B += coef; else if (py === 2) p.C += coef;
+            else if (px === 1) p.D += coef; else if (py === 1) p.E += coef; else p.F += coef;
+        });
+    });
+    if (![p.A, p.B, p.C, p.D, p.E, p.F].every(isFinite)) throw new Error('Invalid number in the equation.');
+    return p;
+}
+
+// Text for a polynomial. constToRhs=true prints "terms = -F", otherwise "terms + F" (no "= 0" is added).
+function taPolyStr(p, vx, vy, constToRhs) {
+    const r = n => Math.round(n * 10000) / 10000;
+    const items = [[p.A, vx + '²'], [p.B, vx + vy], [p.C, vy + '²'], [p.D, vx], [p.E, vy]];
+    if (!constToRhs) items.push([p.F, '']);
+    let out = '';
+    items.forEach(([c, lab]) => {
+        c = r(c);
+        if (c === 0) return;
+        const mag = Math.abs(c);
+        const body = (lab && mag === 1) ? lab : String(mag) + lab;
+        out += out ? (c < 0 ? ' - ' : ' + ') + body : (c < 0 ? '-' : '') + body;
+    });
+    if (!out) out = '0';
+    return constToRhs ? out + ' = ' + String(r(-p.F) === 0 ? 0 : r(-p.F)) : out;
+}
+
+// Substitute X = L1[0]*u + L1[1]*v + L1[2], Y = L2[0]*u + L2[1]*v + L2[2] into P(X, Y).
+function taSubst(p, L1, L2) {
+    const mul = (L, M) => ({
+        A: L[0]*M[0], B: L[0]*M[1] + L[1]*M[0], C: L[1]*M[1],
+        D: L[0]*M[2] + L[2]*M[0], E: L[1]*M[2] + L[2]*M[1], F: L[2]*M[2]
+    });
+    const xx = mul(L1, L1), xy = mul(L1, L2), yy = mul(L2, L2);
+    const out = {};
+    ['A', 'B', 'C', 'D', 'E', 'F'].forEach(k => { out[k] = p.A*xx[k] + p.B*xy[k] + p.C*yy[k]; });
+    out.D += p.D*L1[0] + p.E*L2[0];
+    out.E += p.D*L1[1] + p.E*L2[1];
+    out.F += p.D*L1[2] + p.E*L2[2] + p.F;
+    return out;
+}
+
+// Chart.js dataset tracing the real curve P(x, y) = 0 inside the window (marching squares).
+function taImplicitDataset(p, x0, x1, y0, y1, color, label, dash) {
+    const N = 200, dx = (x1 - x0) / N, dy = (y1 - y0) / N;
+    const f = (x, y) => p.A*x*x + p.B*x*y + p.C*y*y + p.D*x + p.E*y + p.F;
+    const g = [];
+    for (let j = 0; j <= N; j++) {
+        const row = [];
+        for (let i = 0; i <= N; i++) row.push(f(x0 + i*dx, y0 + j*dy));
+        g.push(row);
+    }
+    const pts = [];
+    const cross = (xa, ya, va, xb, yb, vb) => {
+        if ((va >= 0) === (vb >= 0)) return null;
+        const t = va / (va - vb);
+        return { x: xa + t*(xb - xa), y: ya + t*(yb - ya) };
+    };
+    for (let j = 0; j < N; j++) {
+        for (let i = 0; i < N; i++) {
+            const xa = x0 + i*dx, xb = xa + dx, ya = y0 + j*dy, yb = ya + dy;
+            const v00 = g[j][i], v10 = g[j][i+1], v11 = g[j+1][i+1], v01 = g[j+1][i];
+            const bot = cross(xa, ya, v00, xb, ya, v10), rgt = cross(xb, ya, v10, xb, yb, v11);
+            const top = cross(xa, yb, v01, xb, yb, v11), lft = cross(xa, ya, v00, xa, yb, v01);
+            const e = [bot, rgt, top, lft].filter(Boolean);
+            const seg = (a, b) => { pts.push(a, b, { x: null, y: null }); };
+            if (e.length === 2) seg(e[0], e[1]);
+            else if (e.length === 4) { seg(bot, lft); seg(top, rgt); }
+        }
+    }
+    return {
+        label: label, data: pts, backgroundColor: 'transparent', borderColor: color, borderWidth: 2,
+        pointRadius: 0, showLine: true, fill: false, spanGaps: false, borderDash: dash || []
+    };
+}
+
 // Helper function to format numbers
 function fmt(n) {
     if (n === undefined || n === null) return '0';
